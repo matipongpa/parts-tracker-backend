@@ -19,4 +19,6 @@ func RegisterRoutes(r *gin.Engine) {
 	r.PUT("/capacitor/:id", handler.PutUpdateCapacitor)
 
 	r.POST("/capacitor", handler.PostCreateCapacitor)
+
+	r.DELETE("/capacitor/:id", handler.DeleteCapacitor)
 }

@@ -111,3 +111,16 @@ func PostCreateCapacitor(c *gin.Context) {
 	c.JSON(http.StatusOK, "Create capacitor success")
 
 }
+
+func DeleteCapacitor(c *gin.Context) {
+	id := c.Param("id")
+
+	db := database.GetDB()
+
+	if err := db.Delete(&Capacitor{}, id).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"Delete capacitor fail": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, "Delete capacitor success")
+}
