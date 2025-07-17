@@ -1,0 +1,29 @@
+meta {
+  name: Post Capacitor
+  type: http
+  seq: 4
+}
+
+post {
+  url: https://6a934aee92ab.ngrok-free.app/capacitor
+  body: json
+  auth: inherit
+}
+
+params:query {
+  : 
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "projectId": "99034-2-HAR-A-01",
+    "partNumber": "GCM155R71H104KE02D",
+    "package": "0402",
+    "value": 100.0,
+    "voltage": 50.0
+  }
+}
