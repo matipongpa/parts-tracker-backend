@@ -5,6 +5,7 @@ import re
 
 class Part(TypedDict):
     type: str
+    description:str
     fit: str
     footprint: str
     manufacturer: str
@@ -15,6 +16,7 @@ class Part(TypedDict):
 
 class PartKey(Enum):
     type = 'type'
+    description = 'description'
     fit = 'fit'
     footprint = 'footprint'
     manufacturer = 'manufacturer'

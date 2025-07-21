@@ -69,6 +69,7 @@ def update_bom(csv_row : list[str],projectName:str, projectCode:str) :
                
         if part_type_found != PartType.UNKNOWN:
             part[PartKey.type.value] = part_type_found.value.lower()
+            part[PartKey.description.value] = csv_row[1]
             part[PartKey.fit.value] = csv_row[2]
             part[PartKey.footprint.value] = csv_row[3]
             part[PartKey.manufacturer.value] = csv_row[4]
@@ -76,6 +77,7 @@ def update_bom(csv_row : list[str],projectName:str, projectCode:str) :
             part[PartKey.value.value] = csv_row[7]
             part[PartKey.project_name.value] = projectName
             part[PartKey.project_code.value] = projectCode
+            print(part)
     if not data_started and 'Designator' in csv_row:
         # Assuming 'Designator' is the first element of the actual header row
         if csv_row[0] == 'Designator':
