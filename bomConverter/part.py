@@ -89,3 +89,8 @@ class PartType(Enum) :
             if designator_final == part_type.name:
                 return part_type
         return PartType.UNKNOWN
+
+    @classmethod
+    def clean_text(cls,description: str) -> 'str':
+        return description.replace('\n', ' ')
+      
