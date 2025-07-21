@@ -1,9 +1,20 @@
+from re import match
 import openpyxl
 import csv
 import sys
+from enum import Enum
+
+from part import Part, PartKey
 
 csv_extension: str = '.csv'
 data_started: bool = False
+class Part_Type(Enum):
+    UNKNOWN = 'Unknown'
+    CAPACITOR = 'Capacitor'
+    RESISTOR = 'Resistor'
+    BATTERY = 'Battery'
+    DIODE = 'Diode'
+    INDUCTOR = 'Inductor'
 
 def xlsx_save_csv_converter(xlsx_path: str) :
     try :
@@ -33,8 +44,38 @@ def xlsx_save_csv_converter(xlsx_path: str) :
 
 def update_bom(csv_row : list[str]) :
     global data_started
+    part: Part = {
+        "type": '',
+        "fit": '',
+        "footprint": '',
+        "manufacturer": '',
+        "part_number": '',
+        "value": ''
+    }
     if data_started and not'Designator' in csv_row:
-        print(csv_row)
+        #csv_row[1] = description it provide type of the device
+        description = csv_row[1]
+        part_type_found : Part_Type = Part_Type.UNKNOWN
+      
+        if Part_Type.CAPACITOR.value.lower() in description.lower():
+            part_type_found = Part_Type.CAPACITOR
+        elif Part_Type.RESISTOR.value.lower() in description.lower():
+            part_type_found = Part_Type.RESISTOR
+        elif Part_Type.BATTERY.value.lower() in description.lower():
+            part_type_found = Part_Type.BATTERY
+        elif Part_Type.DIODE.value.lower() in description.lower():
+            part_type_found = Part_Type.DIODE
+        elif Part_Type.INDUCTOR.value.lower() in description.lower():
+            part_type_found = Part_Type.INDUCTOR
+        else:
+            print(f"Type unknown for description: '{description}'. Skipping.")
+            return
+
+        print(part_type_found.value)
+        
+        if part_type_found != Part_Type.UNKNOWN:
+            part[PartKey.type.value] = part_type_found.value.lower()
+            print(part)
 
     if not data_started and 'Designator' in csv_row:
         # Assuming 'Designator' is the first element of the actual header row
