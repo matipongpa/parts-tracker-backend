@@ -4,17 +4,11 @@ import csv
 import sys
 from enum import Enum
 
-from part import Part, PartKey
+from part import Part, PartKey, PartType
 
 csv_extension: str = '.csv'
 data_started: bool = False
-class Part_Type(Enum):
-    UNKNOWN = 'Unknown'
-    CAPACITOR = 'Capacitor'
-    RESISTOR = 'Resistor'
-    BATTERY = 'Battery'
-    DIODE = 'Diode'
-    INDUCTOR = 'Inductor'
+
 
 def xlsx_save_csv_converter(xlsx_path: str) :
     try :
@@ -54,29 +48,19 @@ def update_bom(csv_row : list[str]) :
     }
     if data_started and not'Designator' in csv_row:
         #csv_row[1] = description it provide type of the device
-        description = csv_row[1]
-        part_type_found : Part_Type = Part_Type.UNKNOWN
-      
-        if Part_Type.CAPACITOR.value.lower() in description.lower():
-            part_type_found = Part_Type.CAPACITOR
-        elif Part_Type.RESISTOR.value.lower() in description.lower():
-            part_type_found = Part_Type.RESISTOR
-        elif Part_Type.BATTERY.value.lower() in description.lower():
-            part_type_found = Part_Type.BATTERY
-        elif Part_Type.DIODE.value.lower() in description.lower():
-            part_type_found = Part_Type.DIODE
-        elif Part_Type.INDUCTOR.value.lower() in description.lower():
-            part_type_found = Part_Type.INDUCTOR
-        else:
-            print(f"Type unknown for description: '{description}'. Skipping.")
+        designator = csv_row[0]
+        if designator == '' :
             return
-
-        print(part_type_found.value)
-        
-        if part_type_found != Part_Type.UNKNOWN:
+        part_type_found  = PartType.get_part_type(designator)
+                
+        if part_type_found != PartType.UNKNOWN:
             part[PartKey.type.value] = part_type_found.value.lower()
+            part[PartKey.fit.value] = csv_row[2]
+            part[PartKey.footprint.value] = csv_row[3]
+            part[PartKey.manufacturer.value] = csv_row[4]
+            part[PartKey.part_number.value] = csv_row[5]
+            part[PartKey.value.value] = csv_row[7]
             print(part)
-
     if not data_started and 'Designator' in csv_row:
         # Assuming 'Designator' is the first element of the actual header row
         if csv_row[0] == 'Designator':
