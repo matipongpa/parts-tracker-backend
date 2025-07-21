@@ -10,6 +10,8 @@ class Part(TypedDict):
     manufacturer: str
     part_number: str
     value: str
+    project_name: str
+    project_code: str
 
 class PartKey(Enum):
     type = 'type'
@@ -18,6 +20,8 @@ class PartKey(Enum):
     manufacturer = 'manufacturer'
     part_number = 'part_number'
     value = 'value'
+    project_name = 'project_name'
+    project_code = 'project_code'
 class PartType(Enum) : 
     A = "assembly"
     AT = "isolator"
@@ -72,12 +76,14 @@ class PartType(Enum) :
     @classmethod
     def get_part_type(cls,designation: str) -> 'PartType':
         delimiter : str = ','
-
+        designator_final: str = ''
         designation__synbol_upper: str = designation.strip().upper()
         designation_no_num: str = re.sub(r'\d+', '',designation__synbol_upper)
-
-
+        if delimiter in designation_no_num :
+            designator_final = designation_no_num.split(',')[0]        
+        else :
+            designator_final =  designation_no_num
         for part_type in PartType:
-            if part_type.name.lower() in designation.lower():
+            if designator_final == part_type.name:
                 return part_type
         return PartType.UNKNOWN
