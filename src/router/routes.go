@@ -13,12 +13,12 @@ func RegisterRoutes(r *gin.Engine) {
 		})
 	})
 
-	r.GET("/capacitor/:id", handler.GetCapacitorById)
-	r.GET("/capacitor", handler.GetCapacitor)
+	r.GET("/part/:id", handler.GetPartById)
+	r.GET("/part", handler.GetPart)
 
-	r.PUT("/capacitor/:id", handler.PutUpdateCapacitor)
+	r.PUT("/part/:id", handler.PutUpdatePart)
 
-	r.POST("/capacitor", handler.PostCreateCapacitor)
+	r.POST("/part", handler.PostCreatePart)
 
-	r.DELETE("/capacitor/:id", handler.DeleteCapacitor)
+	r.DELETE("/part/:id", handler.DeletePart)
 }
