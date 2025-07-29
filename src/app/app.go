@@ -2,6 +2,7 @@ package app
 
 import (
 	"log"
+	"partlist/src/app/middleware"
 	routes "partlist/src/router"
 
 	db "partlist/src/db"
@@ -11,6 +12,7 @@ import (
 
 func Run() {
 	r := gin.Default()
+	r.Use(middleware.CorsMiddleware())
 	routes.RegisterRoutes(r)
 
 	if err := db.InitDB(); err != nil {
