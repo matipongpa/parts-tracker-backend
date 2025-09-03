@@ -2,4 +2,4 @@
 
 backend for part tracking
 
-go run cmd/main.go BOM_docs http://localhost:8080
+go run cmd/main.go BOM_docs http://localhost:8080 username password

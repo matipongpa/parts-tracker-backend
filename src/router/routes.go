@@ -1,6 +1,7 @@
 package routes
 
 import (
+	middlewareAuth "partlist/src/app/auth/middleware"
 	"partlist/src/handler"
 
 	"github.com/gin-gonic/gin"
@@ -8,18 +9,26 @@ import (
 
 func RegisterRoutes(r *gin.Engine) {
 	basePath := "/api"
-	r.GET(basePath+"/ping", func(c *gin.Context) {
+
+	public := r.Group(basePath)
+	public.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"message": "pong",
 		})
 	})
 
-	r.GET(basePath+"/part/:id", handler.GetPartById)
-	r.GET(basePath+"/part", handler.GetPart)
+	public.POST("/login", handler.Login)
+	public.POST("/register", handler.Register)
 
-	r.PUT(basePath+"/part/:id", handler.PutUpdatePart)
+	protected := r.Group(basePath)
+	protected.Use(middlewareAuth.JWTMiddleware())
 
-	r.POST(basePath+"/part", handler.PostCreatePart)
+	protected.GET("/part/:id", handler.GetPartById)
+	protected.GET("/part", handler.GetPart)
 
-	r.DELETE(basePath+"/part/:id", handler.DeletePart)
+	protected.PUT("/part/:id", handler.PutUpdatePart)
+
+	protected.POST("/part", handler.PostCreatePart)
+
+	protected.DELETE("/part/:id", handler.DeletePart)
 }

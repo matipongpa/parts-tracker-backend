@@ -1,0 +1,14 @@
+command to avaliable wire guard
+    sysctl -w net.inet.ip.forwarding=1 -> Up
+    sysctl -w net.inet.ip.forwarding=0 -> Down
+
+[Interface]
+PrivateKey = <friend-private-key>
+Address = 10.0.0.2/24 -> plus .2 -> 1
+
+[Peer]
+PublicKey = <your-mac-public-key>
+Endpoint = <your-home-ip-or-ddns>:51820
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25
+
