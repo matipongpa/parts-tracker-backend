@@ -15,7 +15,7 @@ type Part struct {
 	PartNumber   string `json:"part_number"`
 	Value        string `json:"value"`
 	ProjectName  string `json:"project_name"`
-	ProjectCode  string `json:"project_code"`
+	PcbRef       string `json:"pcb_ref"`
 }
 
 // PartKey defines the keys for a Part. (Less critical in Go, but good for consistency)

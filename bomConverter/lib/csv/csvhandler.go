@@ -3,7 +3,9 @@ package csv
 import (
 	"fmt"
 	part "partlist/bomConverter/lib/part"
+
 	"partlist/bomConverter/lib/request"
+	config "partlist/bomConverter/utilis"
 	"strings"
 
 	"github.com/xuri/excelize/v2" // Using excelize for XLSX/XLSM files
@@ -26,7 +28,7 @@ type CsvHandler struct {
 type App struct {
 	URLRequest string
 	PartList   []part.Part
-	Client     *request.ClientService
+	Client     *request.PartService
 	CsvHandler *CsvHandler
 }
 
@@ -38,7 +40,7 @@ func NewCsvHandler(excelFileName string, excelDirList []string) *CsvHandler {
 		CSVExtension:   ".csv",
 		DataStarted:    false,
 		ProjectNameKey: "Project Name :",
-		ProjectCodeKey: "Project Code :",
+		ProjectCodeKey: "PCB Ref:",
 		PartList:       []part.Part{},
 		HeaderIndex:    make(map[part.HeaderIndex]int),
 	}
@@ -93,25 +95,37 @@ func (ch *CsvHandler) processSingleExcelFile(excelFileName string) ([]part.Part,
 }
 
 func (ch *CsvHandler) processMultipleExcelFiles(urlRequest string) error {
+	config := config.GetConfig()
 	fileNumber := len(ch.ExcelFileList)
-	client := request.NewClientService(urlRequest)
+	// client := request.NewClientService(urlRequest)
+	descClient := request.NewClientService(config.DescriptionUrl)
 	for i, file := range ch.ExcelFileList {
 		parts, err := ch.processSingleExcelFile(file)
 		if err != nil {
 			return err // Or handle the error differently if you want to continue
 		}
-		ch.PartList = append(ch.PartList, parts...)
-		if len(ch.PartList) > 0 {
-			for _, part := range ch.PartList {
-				_, err := client.PostPartJSON(part)
-				if err != nil {
-					continue
-					// fmt.Printf("Error posting part: %v\n", err)
-				}
-			}
-		} else {
-			fmt.Println("No parts found to process.")
+		// request to description server server
+		newDescPartList, err := descClient.RequestDescription(parts)
+		if err != nil {
+			return err // Or handle the error differently if you want to continue
 		}
+
+		fmt.Println("newDescPartList", newDescPartList)
+
+		_ = newDescPartList
+
+		// ch.PartList = append(ch.PartList, newDescPartList...)
+		// if len(ch.PartList) > 0 {
+		// 	for _, part := range ch.PartList {
+		// 		_, err := client.PostPartJSON(part)
+		// 		if err != nil {
+		// 			continue
+		// 			// fmt.Printf("Error posting part: %v\n", err)
+		// 		}
+		// 	}
+		// } else {
+		// 	fmt.Println("No parts found to process.")
+		// }
 		ch.PartList = []part.Part{}
 		fmt.Printf("Progress: %d/%d\r", i+1, fileNumber)
 	}
@@ -132,7 +146,7 @@ func (ch *CsvHandler) updateBOM(csvRow []string) {
 			partInfo := part.Part{
 				Type:        strings.ToLower(string(partTypeFound)),
 				ProjectName: ch.ProjectName,
-				ProjectCode: ch.ProjectCode,
+				PcbRef:      ch.ProjectCode,
 			}
 
 			// Safely access header indices

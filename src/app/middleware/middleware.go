@@ -9,7 +9,7 @@ import (
 
 // CorsMiddleware returns a Gin middleware for handling CORS.
 // This function does NOT handle authentication.
-func CorsMiddleware() gin.HandlerFunc {
+func NewCorr() gin.HandlerFunc {
 	return cors.New(cors.Config{
 		// IMPORTANT: Configure your allowed origins here.
 		// In production, these should be your frontend domain(s).
