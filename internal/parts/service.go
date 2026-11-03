@@ -15,6 +15,7 @@ import (
 var (
 	ErrInvalidInput error = errors.New("parts: invalid input")
 	ErrNotFound     error = errors.New("parts: part not found")
+	ErrDuplicate    error = errors.New("parts: part already exists")
 )
 
 const (
@@ -87,7 +88,8 @@ type Service interface {
 	Create(ctx context.Context, p NewPart) (Part, error)
 	Update(ctx context.Context, id string, p PartPatch) (Part, error)
 	Delete(ctx context.Context, id string) error
-	// BulkCreate stores every part in one transaction and returns how many were stored.
+	// BulkCreate stores the parts in one transaction and returns how many were inserted.
+	// Parts that already exist (same pcb_ref, part_number, project_name) are skipped.
 	BulkCreate(ctx context.Context, ps []NewPart) (int, error)
 	ClassifyDesignator(designator string) PartType
 }
@@ -158,7 +160,7 @@ func (s *service) Create(ctx context.Context, p NewPart) (Part, error) {
 	}
 	row, err := s.store.Create(ctx, toRow(p))
 	if err != nil {
-		return Part{}, err
+		return Part{}, mapRepoErr(err)
 	}
 	return toPart(row), nil
 }
@@ -230,8 +232,11 @@ func validateNew(p NewPart) error {
 }
 
 func mapRepoErr(err error) error {
-	if errors.Is(err, repo.ErrNotFound) {
+	switch {
+	case errors.Is(err, repo.ErrNotFound):
 		return ErrNotFound
+	case errors.Is(err, repo.ErrDuplicate):
+		return ErrDuplicate
 	}
 	return err
 }

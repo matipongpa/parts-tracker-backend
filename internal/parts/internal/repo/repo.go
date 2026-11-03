@@ -7,9 +7,13 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-var ErrNotFound error = errors.New("repo: part not found")
+var (
+	ErrNotFound  error = errors.New("repo: part not found")
+	ErrDuplicate error = errors.New("repo: part already exists")
+)
 
 const bulkBatchSize int = 500
 
@@ -96,6 +100,9 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Row, int64, error)
 func (r *Repository) Create(ctx context.Context, row Row) (Row, error) {
 	row.ID = 0
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return Row{}, ErrDuplicate
+		}
 		return Row{}, fmt.Errorf("create part: %w", err)
 	}
 	return row, nil
@@ -109,6 +116,9 @@ func (r *Repository) Update(ctx context.Context, id uint64, p Patch) (Row, error
 	}
 
 	res := r.db.WithContext(ctx).Model(&Row{}).Where("id = ?", id).Select(columns).Updates(values)
+	if errors.Is(res.Error, gorm.ErrDuplicatedKey) {
+		return Row{}, ErrDuplicate
+	}
 	if res.Error != nil {
 		return Row{}, fmt.Errorf("update part: %w", res.Error)
 	}
@@ -130,6 +140,8 @@ func (r *Repository) Delete(ctx context.Context, id uint64) error {
 }
 
 // BulkCreate inserts all rows in one transaction: either every row is stored or none.
+// Rows that duplicate an existing part (or an earlier row in the batch) are skipped, and
+// the returned count is the number actually inserted.
 func (r *Repository) BulkCreate(ctx context.Context, rows []Row) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
@@ -139,13 +151,16 @@ func (r *Repository) BulkCreate(ctx context.Context, rows []Row) (int, error) {
 		row.ID = 0
 		batch[i] = row
 	}
+	var inserted int64
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.CreateInBatches(&batch, bulkBatchSize).Error
+		res := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(&batch, bulkBatchSize)
+		inserted = res.RowsAffected
+		return res.Error
 	})
 	if err != nil {
 		return 0, fmt.Errorf("bulk create parts: %w", err)
 	}
-	return len(batch), nil
+	return int(inserted), nil
 }
 
 func (p Patch) assignments() (Row, []string) {

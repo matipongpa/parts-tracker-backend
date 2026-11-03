@@ -15,10 +15,12 @@ var ErrInvalidFile error = errors.New("bomconverter: invalid BOM file")
 
 // ImportResult counts rows of the uploaded BOM.
 // Skipped rows have an unknown designator or lack a required part field.
+// Duplicates are valid rows that already exist (or repeat earlier in the file) and are not stored again.
 type ImportResult struct {
-	Total    int `json:"total"`
-	Inserted int `json:"inserted"`
-	Skipped  int `json:"skipped"`
+	Total      int `json:"total"`
+	Inserted   int `json:"inserted"`
+	Skipped    int `json:"skipped"`
+	Duplicates int `json:"duplicates"`
 }
 
 // Service is the public surface of the bomconverter module.
@@ -56,7 +58,12 @@ func (s *service) Import(ctx context.Context, file io.Reader) (ImportResult, err
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("store parts: %w", err)
 	}
-	return ImportResult{Total: len(lines), Inserted: inserted, Skipped: len(lines) - len(valid)}, nil
+	return ImportResult{
+		Total:      len(lines),
+		Inserted:   inserted,
+		Skipped:    len(lines) - len(valid),
+		Duplicates: len(valid) - inserted,
+	}, nil
 }
 
 func (s *service) toNewPart(line parser.Line) (parts.NewPart, bool) {

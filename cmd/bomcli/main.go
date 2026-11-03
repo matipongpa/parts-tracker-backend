@@ -52,6 +52,6 @@ func importFile(svc bomconverter.Service, path string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s: total=%d inserted=%d skipped=%d\n", path, res.Total, res.Inserted, res.Skipped)
+	fmt.Printf("%s: total=%d inserted=%d skipped=%d duplicates=%d\n", path, res.Total, res.Inserted, res.Skipped, res.Duplicates)
 	return nil
 }

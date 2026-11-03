@@ -109,6 +109,8 @@ func respondError(c *gin.Context, op string, err error) {
 	switch {
 	case errors.Is(err, ErrInvalidInput):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+	case errors.Is(err, ErrDuplicate):
+		c.JSON(http.StatusConflict, gin.H{"error": "Part already exists"})
 	case errors.Is(err, ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Part not found"})
 	default:

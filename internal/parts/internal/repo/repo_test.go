@@ -113,3 +113,32 @@ func TestBulkCreateIsAtomic(t *testing.T) {
 		t.Fatalf("count = %d, err = %v; want 0 (rolled back)", count, err)
 	}
 }
+
+func TestDuplicatesAreRejectedOrSkipped(t *testing.T) {
+	ctx := context.Background()
+	r := repo.New(newDB(t))
+
+	if _, err := r.Create(ctx, row("PN", "C1", "Capacitor")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Create(ctx, row("PN", "C1", "Capacitor")); !errors.Is(err, repo.ErrDuplicate) {
+		t.Errorf("duplicate create: %v", err)
+	}
+
+	// One existing, one repeated within the batch, one new.
+	n, err := r.BulkCreate(ctx, []repo.Row{row("PN", "C1", "Capacitor"), row("NEW", "C2", "Capacitor"), row("NEW", "C2", "Capacitor")})
+	if err != nil || n != 1 {
+		t.Fatalf("inserted = %d, err = %v; want 1", n, err)
+	}
+	_, count, _ := r.Search(ctx, repo.Filter{Limit: 10})
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+
+	other, _ := r.Create(ctx, row("OTHER", "C9", "Capacitor"))
+	pn := "PN"
+	ref := "C1"
+	if _, err := r.Update(ctx, other.ID, repo.Patch{PartNumber: &pn, PcbRef: &ref}); !errors.Is(err, repo.ErrDuplicate) {
+		t.Errorf("update into duplicate: %v", err)
+	}
+}

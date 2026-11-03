@@ -20,6 +20,8 @@ type fakeParts struct {
 	parts.Service
 	stored []parts.NewPart
 	err    error
+	// existing makes BulkCreate report fewer inserts, as the real store does for duplicates.
+	existing int
 }
 
 func (f *fakeParts) ClassifyDesignator(d string) parts.PartType {
@@ -34,7 +36,7 @@ func (f *fakeParts) ClassifyDesignator(d string) parts.PartType {
 
 func (f *fakeParts) BulkCreate(_ context.Context, ps []parts.NewPart) (int, error) {
 	f.stored = ps
-	return len(ps), f.err
+	return len(ps) - f.existing, f.err
 }
 
 func workbook(t *testing.T, rows [][]string) []byte {
@@ -138,5 +140,15 @@ func TestHTTPImportStoreFailureIs500(t *testing.T) {
 	rec := upload(t, New(&fakeParts{err: errors.New("db down")}), "file", "bom.xlsm", sampleBOM(t))
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "db down") {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestImportReportsDuplicates(t *testing.T) {
+	res, err := New(&fakeParts{existing: 1}).Import(context.Background(), bytes.NewReader(sampleBOM(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res != (ImportResult{Total: 3, Inserted: 0, Skipped: 2, Duplicates: 1}) {
+		t.Errorf("result = %+v", res)
 	}
 }

@@ -57,6 +57,7 @@ func TestStatusCodes(t *testing.T) {
 		{"get internal hides error", &stubService{getErr: errors.New("boom")}, http.MethodGet, "/api/part/1", "", http.StatusInternalServerError},
 		{"create bad json is 400", &stubService{}, http.MethodPost, "/api/part", "{", http.StatusBadRequest},
 		{"create missing fields is 400", &stubService{createErr: ErrInvalidInput}, http.MethodPost, "/api/part", "{}", http.StatusBadRequest},
+		{"create duplicate is 409", &stubService{createErr: ErrDuplicate}, http.MethodPost, "/api/part", "{}", http.StatusConflict},
 		{"create ok", &stubService{}, http.MethodPost, "/api/part", "{}", http.StatusOK},
 		{"update bad json is 400", &stubService{}, http.MethodPut, "/api/part/1", "{", http.StatusBadRequest},
 		{"update not found", &stubService{getErr: ErrNotFound}, http.MethodPut, "/api/part/1", "{}", http.StatusNotFound},
