@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"partlist/internal/bomconverter"
 	"partlist/internal/identity"
 	"partlist/internal/parts"
 	"partlist/internal/platform/config"
@@ -49,17 +50,18 @@ func run() error {
 		return err
 	}
 
-	router := buildRouter(authSvc, parts.New(conn, parts.Options{
+	partsSvc := parts.New(conn, parts.Options{
 		CacheMaxEntries: cfg.PartsCacheMaxEntries,
 		CacheTTL:        cfg.PartsCacheTTL,
-	}))
+	})
+	router := buildRouter(authSvc, partsSvc, bomconverter.New(partsSvc))
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
 }
 
-func buildRouter(authSvc identity.Service, partsSvc parts.Service) *gin.Engine {
+func buildRouter(authSvc identity.Service, partsSvc parts.Service, bomSvc bomconverter.Service) *gin.Engine {
 	router := gin.Default()
 	router.Use(httpx.NewCORS())
 
@@ -72,6 +74,7 @@ func buildRouter(authSvc identity.Service, partsSvc parts.Service) *gin.Engine {
 	protected := router.Group(apiBasePath)
 	protected.Use(identity.Middleware(authSvc))
 	parts.RegisterRoutes(protected, partsSvc)
+	bomconverter.RegisterRoutes(protected, bomSvc)
 
 	return router
 }

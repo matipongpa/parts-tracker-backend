@@ -48,6 +48,9 @@ type NewPart struct {
 	Value        string `json:"value"`
 }
 
+// Validate reports ErrInvalidInput when a required field is empty.
+func (p NewPart) Validate() error { return validateNew(p) }
+
 // PartPatch updates only the fields that are present (non-nil); an empty string is a valid value.
 type PartPatch struct {
 	PartNumber   *string `json:"part_number"`
