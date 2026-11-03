@@ -8,14 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"partlist/internal/identity"
+	"partlist/internal/parts"
 	"partlist/internal/platform/config"
 	"partlist/internal/platform/db"
 	"partlist/internal/platform/httpx"
-
-	// Legacy part handlers; replaced by internal/parts in step 2 of docs/design/modular-monolith.md.
-	legacyhandler "partlist/src/handler"
-
-	legacydb "partlist/src/db"
+	"partlist/internal/platform/migrate"
+	"partlist/migrations"
 )
 
 const apiBasePath string = "/api"
@@ -36,8 +34,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Bridge for the legacy part handlers that still read the package-level handle.
-	legacydb.SetDB(conn)
+	if cfg.RunMigrations {
+		if err := migrate.Up(conn, migrations.FS); err != nil {
+			return err
+		}
+	}
 
 	authSvc, err := identity.New(conn, identity.Config{
 		JWTSecret:  cfg.JWTSecret,
@@ -48,14 +49,14 @@ func run() error {
 		return err
 	}
 
-	router := buildRouter(authSvc)
+	router := buildRouter(authSvc, parts.New(conn))
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
 }
 
-func buildRouter(authSvc identity.Service) *gin.Engine {
+func buildRouter(authSvc identity.Service, partsSvc parts.Service) *gin.Engine {
 	router := gin.Default()
 	router.Use(httpx.NewCORS())
 
@@ -67,11 +68,7 @@ func buildRouter(authSvc identity.Service) *gin.Engine {
 
 	protected := router.Group(apiBasePath)
 	protected.Use(identity.Middleware(authSvc))
-	protected.GET("/part/:id", legacyhandler.GetPartById)
-	protected.GET("/part", legacyhandler.GetPart)
-	protected.PUT("/part/:id", legacyhandler.PutUpdatePart)
-	protected.POST("/part", legacyhandler.PostCreatePart)
-	protected.DELETE("/part/:id", legacyhandler.DeletePart)
+	parts.RegisterRoutes(protected, partsSvc)
 
 	return router
 }

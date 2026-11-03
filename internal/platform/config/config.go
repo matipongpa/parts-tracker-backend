@@ -25,6 +25,8 @@ type Config struct {
 	DBURL      string
 	BcryptCost int
 	TokenTTL   time.Duration
+	// RunMigrations applies pending SQL migrations at startup (RUN_MIGRATIONS=true).
+	RunMigrations bool
 }
 
 // Load reads an optional .env file, then validates the process environment.
@@ -52,6 +54,14 @@ func fromEnv(getenv func(string) string) (Config, error) {
 	}
 	if cfg.DBURL == "" {
 		return Config{}, errors.New("config: DB_URL is required")
+	}
+
+	if raw := getenv("RUN_MIGRATIONS"); raw != "" {
+		run, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: RUN_MIGRATIONS must be a boolean: %w", err)
+		}
+		cfg.RunMigrations = run
 	}
 
 	if raw := getenv("BCRYPT_COST"); raw != "" {

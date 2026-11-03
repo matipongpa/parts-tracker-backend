@@ -8,7 +8,7 @@ RUN go mod download
 
 COPY ./cmd ./cmd
 COPY ./internal ./internal
-COPY ./src ./src
+COPY ./migrations ./migrations
 
 RUN go build -o part-tracker ./cmd/server
 

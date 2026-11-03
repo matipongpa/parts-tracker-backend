@@ -140,7 +140,7 @@ Fixes carried over: return after empty-id checks, bind errors return 400 (not 50
 
 #### Search
 
-- Add `pg_trgm` and GIN trigram indexes on `partnumber`, `pcbref`, `value`, `description`, `type` (migration `0002`). This fixes the cold-query cost, which a cache cannot.
+- Add `pg_trgm` and GIN trigram indexes on `partnumber`, `pcbref`, `value`, `description`, `type` (migration `0003`; `0001` is the baseline, `0002` the users unique index). This fixes the cold-query cost, which a cache cannot.
 - List and count are computed together and returned as one `SearchResult` (`{list, count}`), as today.
 
 #### Cache (in-process, no Redis)
