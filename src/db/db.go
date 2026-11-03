@@ -17,6 +17,13 @@ func InitDB(dbUrl string) error {
 	return nil
 }
 
+// SetDB injects the connection opened by internal/platform/db.
+//
+// Deprecated: bridge for legacy handlers; removed when internal/parts replaces src/handler.
+func SetDB(conn *gorm.DB) {
+	DB = conn
+}
+
 func GetDB() *gorm.DB {
 	return DB
 }

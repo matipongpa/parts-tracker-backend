@@ -6,9 +6,11 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY ./cmd ./cmd
+COPY ./internal ./internal
 COPY ./src ./src
 
-RUN go build -o part-tracker ./src/cmd
+RUN go build -o part-tracker ./cmd/server
 
 # Stage 2: Run
 FROM alpine:latest
