@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	defaultPort     string        = "8080"
-	defaultTokenTTL time.Duration = time.Hour
+	defaultPort              string        = "8080"
+	defaultTokenTTL          time.Duration = time.Hour
+	defaultPartsCacheEntries int           = 1000
+	defaultPartsCacheTTL     time.Duration = 60 * time.Second
 )
 
 // Config is loaded once in cmd/server and passed down to modules.
@@ -27,6 +29,9 @@ type Config struct {
 	TokenTTL   time.Duration
 	// RunMigrations applies pending SQL migrations at startup (RUN_MIGRATIONS=true).
 	RunMigrations bool
+	// PartsCacheMaxEntries <= 0 disables the parts search cache.
+	PartsCacheMaxEntries int
+	PartsCacheTTL        time.Duration
 }
 
 // Load reads an optional .env file, then validates the process environment.
@@ -39,11 +44,13 @@ func Load() (Config, error) {
 
 func fromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Port:       getenv("PORT"),
-		JWTSecret:  getenv("JWT_SECRET"),
-		DBURL:      getenv("DB_URL"),
-		BcryptCost: bcrypt.DefaultCost,
-		TokenTTL:   defaultTokenTTL,
+		Port:                 getenv("PORT"),
+		JWTSecret:            getenv("JWT_SECRET"),
+		DBURL:                getenv("DB_URL"),
+		BcryptCost:           bcrypt.DefaultCost,
+		TokenTTL:             defaultTokenTTL,
+		PartsCacheMaxEntries: defaultPartsCacheEntries,
+		PartsCacheTTL:        defaultPartsCacheTTL,
 	}
 
 	if cfg.Port == "" {
@@ -62,6 +69,21 @@ func fromEnv(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("config: RUN_MIGRATIONS must be a boolean: %w", err)
 		}
 		cfg.RunMigrations = run
+	}
+
+	if raw := getenv("PARTS_CACHE_MAX_ENTRIES"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: PARTS_CACHE_MAX_ENTRIES must be an integer: %w", err)
+		}
+		cfg.PartsCacheMaxEntries = n
+	}
+	if raw := getenv("PARTS_CACHE_TTL"); raw != "" {
+		ttl, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: PARTS_CACHE_TTL must be a duration like 60s: %w", err)
+		}
+		cfg.PartsCacheTTL = ttl
 	}
 
 	if raw := getenv("BCRYPT_COST"); raw != "" {

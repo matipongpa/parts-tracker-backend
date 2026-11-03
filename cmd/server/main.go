@@ -49,7 +49,10 @@ func run() error {
 		return err
 	}
 
-	router := buildRouter(authSvc, parts.New(conn))
+	router := buildRouter(authSvc, parts.New(conn, parts.Options{
+		CacheMaxEntries: cfg.PartsCacheMaxEntries,
+		CacheTTL:        cfg.PartsCacheTTL,
+	}))
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}

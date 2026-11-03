@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -101,8 +102,18 @@ type service struct {
 	store partStore
 }
 
-func New(db *gorm.DB) Service {
-	return &service{store: repo.New(db)}
+// Options configures the in-process search cache. MaxEntries <= 0 disables it.
+type Options struct {
+	CacheMaxEntries int
+	CacheTTL        time.Duration
+}
+
+func New(db *gorm.DB, opts Options) Service {
+	var svc Service = &service{store: repo.New(db)}
+	if opts.CacheMaxEntries > 0 && opts.CacheTTL > 0 {
+		svc = newCachedService(svc, newLRUCache(opts.CacheMaxEntries, opts.CacheTTL))
+	}
+	return svc
 }
 
 func (s *service) Get(ctx context.Context, id string) (Part, error) {

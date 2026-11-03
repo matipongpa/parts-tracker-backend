@@ -154,7 +154,7 @@ Fixes carried over: return after empty-id checks, bind errors return 400 (not 50
 | Invalidation | `atomic.Uint64` version bumped on every write; `BulkCreate` bumps once per call. No key scanning; stale entries age out |
 | Stampede | `singleflight.Group` on the miss path |
 | Not cached | `Get(id)` (primary-key lookup is already cheap) |
-| Interface | `Cache[K, V]` defined in `parts`, so a Redis impl can replace it later |
+| Interface | `Cache` (Get/Set of `SearchResult` by string key) defined in `parts`, so a Redis impl can replace it later. Configured by `PARTS_CACHE_MAX_ENTRIES` (default 1000, <=0 disables) and `PARTS_CACHE_TTL` (default 60s) |
 
 Multi-instance: each instance has its own cache and counter, so a write on instance A does not invalidate B. Acceptable while running one instance (TTL bounds it). If we scale out, publish `parts.changed` on the event bus and have every instance bump its counter. Still no Redis.
 
