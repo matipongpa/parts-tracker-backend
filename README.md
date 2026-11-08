@@ -43,7 +43,7 @@ internal/
   platform/           config, db, migrate, httpx (CORS)
   identity/           users, register/login, JWT issue/verify, auth middleware
   parts/              parts CRUD, search, cache, designator classification, bulk create
-  bomconverter/       XLSM/XLSX BOM parsing and import
+  bomconverter/       XLSM/XLSX BOM preview, column mapping and import
   partstools/         read-only parts queries as AI tools (search_parts, get_part_usage)
   assistant/          POST /api/ask: a model (Claude or OpenAI-compatible) calls partstools, answer + parts returned
   mcpserver/          the same tools served over MCP
@@ -67,7 +67,8 @@ All paths are under `/api`. Everything except `/ping`, `/register`, `/login` and
 | POST | `/part` | create; 409 if the part already exists |
 | PUT | `/part/:id` | partial update (only fields present in the body); 409 if it would duplicate another part |
 | DELETE | `/part/:id` | delete |
-| POST | `/bom/import` | upload a BOM workbook (see below) |
+| POST | `/bom/preview` | read a BOM workbook and propose a column mapping (see below) |
+| POST | `/bom/import` | import a BOM workbook with a confirmed mapping (see below) |
 | POST | `/ask` | `{question}` → `{id, question, answer, parts, parts_truncated, tools_used, created_at}`; the answer is saved to the caller's history (`id` is empty if saving failed); only mounted when `ANTHROPIC_API_KEY` is set (see AI assistant) |
 | GET | `/ask/history` | the caller's saved questions, newest first: `{list: [{id, question, created_at}]}` (works even when the assistant is disabled) |
 | GET | `/ask/history/:id` | one saved conversation: `{id, question, answer, parts, parts_truncated, tools_used, created_at}`; 404 if it is not yours |
@@ -101,19 +102,42 @@ Query parameters: `pcb_ref`, `part_number`, `value`, `description`, `type`, `pag
 
 ## BOM import
 
-`POST /api/bom/import`, `multipart/form-data`, file in the field `file`. `.xlsm` or `.xlsx`, at most 10 MB.
+Two steps, so a file whose columns moved or were renamed is never stored with the wrong meaning:
+
+1. `POST /api/bom/preview` reads the workbook and proposes how its columns map to part fields. Nothing is stored.
+2. `POST /api/bom/import` stores the rows using the mapping the user confirmed.
+
+Both are `multipart/form-data` with the workbook in the field `file` (`.xlsm` or `.xlsx`, at most 10 MB, JWT required).
+
+**Preview** accepts optional `sheet`, `header_row` (zero-based) and `mapping` (JSON, to dry-run the user's edits). It returns the top of the sheet as a grid, the proposed `mapping`, where it came from (`mapping_source`: `saved`, `detected` or `given`), a per-field `confidence`, the required fields still `missing`, the `resolved` project name and PCB ref, and a `summary` (`rows`, `valid`, `skipped`; duplicates are only known at import).
+
+**Import** accepts `sheet`, `mapping` and `save_mapping=true`:
 
 ```json
-{ "total": 120, "inserted": 100, "skipped": 5, "duplicates": 15 }
+{ "total": 120, "inserted": 100, "skipped": 5, "duplicates": 15, "mapping_saved": true }
 ```
 
-- The first sheet is read. `Project Name :` and `PCB Ref:` rows above the header row give the project name and PCB ref. The row starting with `Designator` is the header; every row after it is a part.
-- The part type comes from the designator prefix (`C12` → Capacitor, `R3,R4` → Resistor, …). Unknown designators are **skipped**, as are rows missing a required field.
-- **Duplicates are not stored.** A part is identified by (`pcb_ref`, `part_number`, `project_name`). The same part in a different project is allowed; the same part twice in one project is not, whether it repeats in the file or already exists in the database.
-- All valid rows are inserted in one transaction.
-- The request is synchronous: it returns when the import has finished.
+A mapping says, for each field, where its value comes from:
 
-CLI equivalent (needs the same environment as the server):
+```json
+{ "header_row": 3,
+  "fields": {
+    "designator":   { "kind": "column", "column": 0 },
+    "part_number":  { "kind": "column", "column": 5 },
+    "project_name": { "kind": "cell", "row": 0, "column": 1 },
+    "pcb_ref":      { "kind": "text", "text": "PCB-1" } } }
+```
+
+`kind` is `column` (every row), `cell` (one fixed cell) or `text` (a constant). Rows and columns are zero-based. Fields: `designator` (must be a column; it decides the part type), `part_number`, `value`, `manufacturer`, `fit`, `project_name`, `pcb_ref` (all required) and `description`, `footprint` (optional). A mapping missing a required field is a **422** whose body lists them in `missing`.
+
+- **Detection needs no AI.** Headers are normalised (case and punctuation ignored) and matched against a synonym list (`Manufacturer part no.`, `MPN` and `Part No` all mean part number). The header row is the first row naming at least two part fields. A designator column can also be found by its content (`C12`, `R3,R4`). Project name and PCB ref are found as columns, or as the cell next to a label such as `Project Name :` above the table. When no sheet is requested, the first sheet that looks like a BOM is used.
+- **Saved mappings are global.** A confirmed mapping is stored in `bom_mappings` under a fingerprint of the header row (column positions and normalised names). The next file with the same header row is pre-filled with it, for every user; a changed header gives a new fingerprint and is detected afresh. The latest confirmation wins. A project name or PCB ref the user *typed* is not saved, since it belongs to that one file.
+- **Plain upload still works.** `POST /api/bom/import` with only `file` uses the saved mapping, else the detected one, and fails with 422 if a required field cannot be found. The CLI does the same.
+- Unknown designators are **skipped**, as are rows missing a required field. The part type comes from the designator prefix (`C12` is a capacitor, `R3,R4` a resistor).
+- **Duplicates are not stored.** A part is identified by (`pcb_ref`, `part_number`, `project_name`). The same part in a different project is allowed; the same part twice in one project is not, whether it repeats in the file or already exists in the database.
+- All valid rows are inserted in one transaction, synchronously. Workbooks are opened with unzip size limits.
+
+CLI equivalent (needs the same environment as the server; refuses a file whose required columns it cannot find, so map those by hand in the web page):
 
 ```bash
 go run ./cmd/bomcli path/to/bom.xlsm [more files...]
@@ -258,7 +282,7 @@ Both repos must be pushed first: the manager deploys what is on the remote branc
 
 ## Status and roadmap
 
-Done: platform and identity, parts module, search cache, synchronous BOM import with duplicate skipping, part-usage lookup, AI assistant (`/api/ask`) and MCP server over read-only tools.
+Done: platform and identity, parts module, search cache, BOM import with column mapping (preview, saved layouts) and duplicate skipping, part-usage lookup, AI assistant (`/api/ask`) and MCP server over read-only tools.
 
 Planned (see the design doc):
 

@@ -71,7 +71,7 @@ func run() error {
 		cookies:     cookies,
 		corsOrigins: cfg.CORSAllowedOrigins,
 		parts:       partsSvc,
-		bom:         bomconverter.New(partsSvc),
+		bom:         bomconverter.New(partsSvc, conn),
 		assistant:   assistantSvc,
 		history:     assistant.NewHistory(conn, assistant.DefaultHistoryLimit),
 	})
@@ -118,8 +118,8 @@ func buildRouter(deps routerDeps) *gin.Engine {
 	protected := router.Group(apiBasePath)
 	protected.Use(identity.Middleware(deps.auth))
 	parts.RegisterRoutes(protected, deps.parts)
-	bomconverter.RegisterRoutes(protected, deps.bom)
 	username := func(c *gin.Context) string { return c.GetString(identity.UsernameContextKey) }
+	bomconverter.RegisterRoutes(protected, deps.bom, username)
 	assistant.RegisterHistoryRoutes(protected, deps.history, username)
 	if deps.assistant != nil {
 		assistant.RegisterAskRoutes(protected, deps.assistant, deps.history, username)

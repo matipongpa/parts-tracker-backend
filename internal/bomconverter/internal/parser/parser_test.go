@@ -1,49 +1,57 @@
 package parser
 
 import (
+	"bytes"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/xuri/excelize/v2"
 )
 
-func sampleRows() [][]string {
-	return [][]string{
-		{"Project Name :", "Widget"},
-		{"PCB Ref:", "PCB-1"},
-		{},
-		{"Designator", "Description", "Value", "FIT/NFIT", "Manufacturer part no."},
-		{"C1", "cap\n100n", "100n", "FIT", "PN-C"},
-		{""},
-		{"R1,R2", "res", "10k"},
+func twoSheets(t *testing.T) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	f.SetCellValue("Sheet1", "A1", "a")
+	f.SetCellValue("Sheet1", "B2", "b")
+	f.NewSheet("Hidden")
+	f.SetSheetVisible("Hidden", false)
+	f.NewSheet("Second")
+	var buf bytes.Buffer
+	if _, err := f.WriteTo(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestOpenRejectsGarbage(t *testing.T) {
+	if _, err := Open(strings.NewReader("not a workbook")); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestParse(t *testing.T) {
-	lines, err := Parse(sampleRows())
+func TestSheetNamesSkipHiddenSheets(t *testing.T) {
+	wb, err := Open(bytes.NewReader(twoSheets(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != 2 {
-		t.Fatalf("lines = %d, want 2", len(lines))
-	}
-	c := lines[0]
-	if c.Designator != "C1" || c.Description != "cap 100n" || c.Value != "100n" || c.Fit != "FIT" ||
-		c.PartNumber != "PN-C" || c.ProjectName != "Widget" || c.PcbRef != "PCB-1" {
-		t.Errorf("line 0 = %+v", c)
-	}
-	// Short row: missing trailing cells become empty, not a panic.
-	if r := lines[1]; r.Designator != "R1,R2" || r.Fit != "" || r.PartNumber != "" {
-		t.Errorf("line 1 = %+v", r)
+	defer wb.Close()
+	if got := strings.Join(wb.SheetNames(), ","); got != "Sheet1,Second" {
+		t.Errorf("names = %s", got)
 	}
 }
 
-func TestParseWithoutHeader(t *testing.T) {
-	if _, err := Parse([][]string{{"Project Name :", "X"}, {"C1", "a"}}); !errors.Is(err, ErrNoDesignator) {
-		t.Fatalf("err = %v", err)
+func TestRows(t *testing.T) {
+	wb, err := Open(bytes.NewReader(twoSheets(t)))
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestReadFirstSheetRejectsGarbage(t *testing.T) {
-	if _, err := ReadFirstSheet(bytesReader("not a workbook")); !errors.Is(err, ErrUnreadable) {
-		t.Fatalf("err = %v", err)
+	defer wb.Close()
+	rows, err := wb.Rows("Sheet1")
+	if err != nil || len(rows) != 2 || rows[1][1] != "b" {
+		t.Fatalf("rows = %v, err = %v", rows, err)
+	}
+	if _, err := wb.Rows("Nope"); !errors.Is(err, ErrUnknownSheet) {
+		t.Errorf("err = %v", err)
 	}
 }

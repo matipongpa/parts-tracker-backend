@@ -1,123 +1,67 @@
+// Package parser reads the cells of an .xlsx/.xlsm workbook.
 package parser
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/xuri/excelize/v2"
 )
 
 var (
 	ErrUnreadable   error = errors.New("parser: file is not a readable Excel workbook")
-	ErrNoDesignator error = errors.New("parser: no \"Designator\" header row found")
+	ErrUnknownSheet error = errors.New("parser: no such sheet")
 )
 
+// Limits on what a workbook may unpack to. The upload is capped at 10 MB, but a crafted
+// zip can expand far beyond that.
 const (
-	projectNameKey     string = "Project Name :"
-	projectCodeKey     string = "PCB Ref:"
-	designatorHeader   string = "Designator"
-	headerDescription  string = "Description"
-	headerFit          string = "FIT/NFIT"
-	headerFootprint    string = "Footprint"
-	headerManufacturer string = "Manufacturer"
-	headerManufPartNo  string = "Manufacturer part no."
-	headerValue        string = "Value"
+	maxUnzipBytes    int64 = 256 << 20
+	maxUnzipXMLBytes int64 = 128 << 20
 )
 
-// Line is one BOM row. Designator is raw ("C12", "R3,R4"); classification is the caller's job.
-type Line struct {
-	Designator   string
-	Description  string
-	Fit          string
-	Footprint    string
-	Manufacturer string
-	PartNumber   string
-	Value        string
-	ProjectName  string
-	PcbRef       string
+// Workbook is an opened workbook. Close it when done.
+type Workbook struct {
+	file *excelize.File
 }
 
-// ReadFirstSheet returns the rows of the first sheet of an .xlsx/.xlsm workbook.
-func ReadFirstSheet(r io.Reader) ([][]string, error) {
-	f, err := excelize.OpenReader(r)
+func Open(r io.Reader) (*Workbook, error) {
+	f, err := excelize.OpenReader(r, excelize.Options{UnzipSizeLimit: maxUnzipBytes, UnzipXMLSizeLimit: maxUnzipXMLBytes})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnreadable, err)
 	}
-	defer f.Close()
+	return &Workbook{file: f}, nil
+}
 
-	rows, err := f.GetRows(f.GetSheetName(0))
+func (w *Workbook) Close() error { return w.file.Close() }
+
+// SheetNames lists the visible sheets in workbook order (all sheets if none is visible).
+func (w *Workbook) SheetNames() []string {
+	all := w.file.GetSheetList()
+	visible := make([]string, 0, len(all))
+	for _, name := range all {
+		if shown, err := w.file.GetSheetVisible(name); err == nil && shown {
+			visible = append(visible, name)
+		}
+	}
+	if len(visible) == 0 {
+		return all
+	}
+	return visible
+}
+
+// Rows returns every row of a sheet. Trailing empty cells of a row are omitted.
+func (w *Workbook) Rows(sheet string) ([][]string, error) {
+	rows, err := w.file.GetRows(sheet)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnreadable, err)
+		// excelize reports a missing sheet by name in the error text; any other failure is a bad file.
+		for _, name := range w.file.GetSheetList() {
+			if name == sheet {
+				return nil, fmt.Errorf("%w: %v", ErrUnreadable, err)
+			}
+		}
+		return nil, fmt.Errorf("%w: %q", ErrUnknownSheet, sheet)
 	}
 	return rows, nil
-}
-
-// Parse extracts BOM lines. Project name and PCB ref come from key/value rows above the
-// "Designator" header row; every non-empty row after the header is a line.
-func Parse(rows [][]string) ([]Line, error) {
-	var (
-		project, pcbRef string
-		columns         map[string]int
-		lines           []Line
-	)
-	for _, row := range rows {
-		if len(row) == 0 {
-			continue
-		}
-		if columns == nil {
-			if len(row) > 1 {
-				switch row[0] {
-				case projectNameKey:
-					project = clean(row[1])
-				case projectCodeKey:
-					pcbRef = clean(row[1])
-				}
-			}
-			if row[0] == designatorHeader {
-				columns = indexColumns(row)
-			}
-			continue
-		}
-		designator := clean(row[0])
-		if designator == "" || designator == designatorHeader {
-			continue
-		}
-		lines = append(lines, Line{
-			Designator:   designator,
-			Description:  cell(row, columns, headerDescription),
-			Fit:          cell(row, columns, headerFit),
-			Footprint:    cell(row, columns, headerFootprint),
-			Manufacturer: cell(row, columns, headerManufacturer),
-			PartNumber:   cell(row, columns, headerManufPartNo),
-			Value:        cell(row, columns, headerValue),
-			ProjectName:  project,
-			PcbRef:       pcbRef,
-		})
-	}
-	if columns == nil {
-		return nil, ErrNoDesignator
-	}
-	return lines, nil
-}
-
-func indexColumns(header []string) map[string]int {
-	columns := make(map[string]int, len(header))
-	for i, name := range header {
-		columns[name] = i
-	}
-	return columns
-}
-
-func cell(row []string, columns map[string]int, header string) string {
-	idx, ok := columns[header]
-	if !ok || idx >= len(row) {
-		return ""
-	}
-	return clean(row[idx])
-}
-
-func clean(s string) string {
-	return strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 }
