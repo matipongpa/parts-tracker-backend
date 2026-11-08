@@ -1,14 +1,16 @@
 # Stage 1: Build
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY ./src ./src
+COPY ./cmd ./cmd
+COPY ./internal ./internal
+COPY ./migrations ./migrations
 
-RUN go build -o part-tracker ./src/cmd
+RUN go build -o part-tracker ./cmd/server
 
 # Stage 2: Run
 FROM alpine:latest
