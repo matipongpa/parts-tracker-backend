@@ -12,6 +12,8 @@ import (
 	"partlist/internal/identity/internal/token"
 )
 
+const testInviteCode string = "team-invite"
+
 type fakeStore struct {
 	users map[string]repo.User
 }
@@ -43,7 +45,7 @@ func newTestService(t *testing.T) (*service, *fakeStore) {
 		t.Fatalf("NewManager: %v", err)
 	}
 	store := newFakeStore()
-	return &service{users: store, tokens: manager, bcryptCost: bcrypt.MinCost}, store
+	return &service{users: store, tokens: manager, bcryptCost: bcrypt.MinCost, inviteCode: testInviteCode}, store
 }
 
 func TestNewRejectsEmptySecret(t *testing.T) {
@@ -55,7 +57,7 @@ func TestNewRejectsEmptySecret(t *testing.T) {
 func TestRegisterHashesPassword(t *testing.T) {
 	svc, store := newTestService(t)
 
-	in := RegisterInput{Username: "alice", Password: "pw", FirstName: "Alice", Surname: "A"}
+	in := RegisterInput{InviteCode: testInviteCode, Username: "alice", Password: "pw", FirstName: "Alice", Surname: "A"}
 	if err := svc.Register(context.Background(), in); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
@@ -72,8 +74,8 @@ func TestRegisterHashesPassword(t *testing.T) {
 func TestRegisterValidation(t *testing.T) {
 	svc, _ := newTestService(t)
 	cases := map[string]RegisterInput{
-		"empty username": {Password: "pw"},
-		"empty password": {Username: "alice"},
+		"empty username": {InviteCode: testInviteCode, Password: "pw"},
+		"empty password": {InviteCode: testInviteCode, Username: "alice"},
 	}
 	for name, in := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -84,9 +86,41 @@ func TestRegisterValidation(t *testing.T) {
 	}
 }
 
+func TestRegisterRequiresInviteCode(t *testing.T) {
+	svc, store := newTestService(t)
+	cases := map[string]error{
+		"":                   ErrInvalidInviteCode,
+		"wrong":              ErrInvalidInviteCode,
+		testInviteCode + "x": ErrInvalidInviteCode,
+	}
+	for code, want := range cases {
+		in := RegisterInput{InviteCode: code, Username: "alice", Password: "pw"}
+		if err := svc.Register(context.Background(), in); !errors.Is(err, want) {
+			t.Errorf("code %q: err = %v, want %v", code, err, want)
+		}
+	}
+	if len(store.users) != 0 {
+		t.Fatalf("stored %d users after rejected registrations, want 0", len(store.users))
+	}
+}
+
+func TestRegisterClosedWithoutConfiguredCode(t *testing.T) {
+	svc, store := newTestService(t)
+	svc.inviteCode = ""
+
+	// An empty submitted code must not match an empty configured code.
+	in := RegisterInput{InviteCode: "", Username: "alice", Password: "pw"}
+	if err := svc.Register(context.Background(), in); !errors.Is(err, ErrRegistrationClosed) {
+		t.Fatalf("err = %v, want ErrRegistrationClosed", err)
+	}
+	if len(store.users) != 0 {
+		t.Fatal("user was stored while registration is closed")
+	}
+}
+
 func TestRegisterDuplicateUsername(t *testing.T) {
 	svc, _ := newTestService(t)
-	in := RegisterInput{Username: "alice", Password: "pw"}
+	in := RegisterInput{InviteCode: testInviteCode, Username: "alice", Password: "pw"}
 
 	if err := svc.Register(context.Background(), in); err != nil {
 		t.Fatalf("first Register: %v", err)
@@ -99,7 +133,7 @@ func TestRegisterDuplicateUsername(t *testing.T) {
 func TestLoginThenVerify(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
-	if err := svc.Register(ctx, RegisterInput{Username: "alice", Password: "pw"}); err != nil {
+	if err := svc.Register(ctx, RegisterInput{InviteCode: testInviteCode, Username: "alice", Password: "pw"}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -119,7 +153,7 @@ func TestLoginThenVerify(t *testing.T) {
 func TestLoginFailuresAreIndistinguishable(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
-	if err := svc.Register(ctx, RegisterInput{Username: "alice", Password: "pw"}); err != nil {
+	if err := svc.Register(ctx, RegisterInput{InviteCode: testInviteCode, Username: "alice", Password: "pw"}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 

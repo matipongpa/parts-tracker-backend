@@ -52,7 +52,7 @@ All paths are under `/api`. Everything except `/ping`, `/register` and `/login` 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/ping` | health check |
-| POST | `/register` | `{username, password, firstname, surname}`; 409 if the username is taken |
+| POST | `/register` | `{invitecode, username, password, firstname, surname}`; 403 if the invite code is wrong or registration is closed, 409 if the username is taken |
 | POST | `/login` | `{username, password}` → `{token}` |
 | GET | `/part` | search; returns `{list, count}` |
 | GET | `/part/:id` | one part |
@@ -135,6 +135,7 @@ Read from the environment (a `.env` file is loaded if present).
 | `JWT_SECRET` | yes | | JWT signing secret; startup fails if empty |
 | `PORT` | no | `8080` | HTTP port |
 | `BCRYPT_COST` | no | bcrypt default | password hashing cost |
+| `REGISTER_INVITE_CODE` | no | | shared code that `POST /api/register` requires; unset closes registration (403) |
 | `RUN_MIGRATIONS` | no | `false` | apply pending migrations at startup |
 | `PARTS_CACHE_MAX_ENTRIES` | no | `1000` | search cache size; `0` or less disables it |
 | `PARTS_CACHE_TTL` | no | `60s` | search cache entry lifetime |

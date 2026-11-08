@@ -65,3 +65,24 @@ func TestFromEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestFromEnvInviteCode(t *testing.T) {
+	base := map[string]string{"JWT_SECRET": "s", "DB_URL": "postgres://x"}
+
+	cfg, err := fromEnv(envFrom(base))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.InviteCode != "" {
+		t.Errorf("InviteCode = %q, want empty (registration closed by default)", cfg.InviteCode)
+	}
+
+	base["REGISTER_INVITE_CODE"] = "  team-code \n"
+	cfg, err = fromEnv(envFrom(base))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.InviteCode != "team-code" {
+		t.Errorf("InviteCode = %q, want %q", cfg.InviteCode, "team-code")
+	}
+}

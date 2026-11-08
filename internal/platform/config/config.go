@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -27,6 +28,9 @@ type Config struct {
 	DBURL      string
 	BcryptCost int
 	TokenTTL   time.Duration
+	// InviteCode is the shared secret required by POST /api/register (REGISTER_INVITE_CODE).
+	// Empty closes registration.
+	InviteCode string
 	// RunMigrations applies pending SQL migrations at startup (RUN_MIGRATIONS=true).
 	RunMigrations bool
 	// PartsCacheMaxEntries <= 0 disables the parts search cache.
@@ -47,6 +51,7 @@ func fromEnv(getenv func(string) string) (Config, error) {
 		Port:                 getenv("PORT"),
 		JWTSecret:            getenv("JWT_SECRET"),
 		DBURL:                getenv("DB_URL"),
+		InviteCode:           strings.TrimSpace(getenv("REGISTER_INVITE_CODE")),
 		BcryptCost:           bcrypt.DefaultCost,
 		TokenTTL:             defaultTokenTTL,
 		PartsCacheMaxEntries: defaultPartsCacheEntries,

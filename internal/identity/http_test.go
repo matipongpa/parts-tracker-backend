@@ -40,7 +40,7 @@ func doJSON(router *gin.Engine, method string, path string, body string, authHea
 func TestRegisterLoginAndProtectedRoute(t *testing.T) {
 	router, _ := newTestRouter(t)
 
-	rec := doJSON(router, http.MethodPost, "/api/register", `{"username":"alice","password":"pw"}`, "")
+	rec := doJSON(router, http.MethodPost, "/api/register", `{"invitecode":"team-invite","username":"alice","password":"pw"}`, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("register status = %d, body = %s", rec.Code, rec.Body)
 	}
@@ -65,7 +65,7 @@ func TestRegisterLoginAndProtectedRoute(t *testing.T) {
 func TestLoginWithClientKeyCasing(t *testing.T) {
 	// bomConverter sends "userName"; encoding/json matches keys case-insensitively.
 	router, _ := newTestRouter(t)
-	doJSON(router, http.MethodPost, "/api/register", `{"username":"alice","password":"pw"}`, "")
+	doJSON(router, http.MethodPost, "/api/register", `{"invitecode":"team-invite","username":"alice","password":"pw"}`, "")
 
 	rec := doJSON(router, http.MethodPost, "/api/login", `{"userName":"alice","password":"pw"}`, "")
 	if rec.Code != http.StatusOK {
@@ -81,9 +81,11 @@ func TestRegisterStatusCodes(t *testing.T) {
 		body string
 		want int
 	}{
-		{"created", `{"username":"alice","password":"pw"}`, http.StatusOK},
-		{"duplicate", `{"username":"alice","password":"pw"}`, http.StatusConflict},
-		{"missing password", `{"username":"bob"}`, http.StatusBadRequest},
+		{"created", `{"invitecode":"team-invite","username":"alice","password":"pw"}`, http.StatusOK},
+		{"duplicate", `{"invitecode":"team-invite","username":"alice","password":"pw"}`, http.StatusConflict},
+		{"missing password", `{"invitecode":"team-invite","username":"bob"}`, http.StatusBadRequest},
+		{"missing invite code", `{"username":"carol","password":"pw"}`, http.StatusForbidden},
+		{"wrong invite code", `{"invitecode":"nope","username":"carol","password":"pw"}`, http.StatusForbidden},
 		{"malformed json", `{`, http.StatusBadRequest},
 	}
 	for _, tc := range cases {

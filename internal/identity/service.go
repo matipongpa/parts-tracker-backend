@@ -2,6 +2,8 @@ package identity
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"time"
@@ -18,6 +20,9 @@ var (
 	ErrUsernameTaken      error = errors.New("identity: username already taken")
 	ErrInvalidCredentials error = errors.New("identity: invalid username or password")
 	ErrInvalidToken       error = errors.New("identity: invalid token")
+	// ErrRegistrationClosed means no invite code is configured, so nobody can register.
+	ErrRegistrationClosed error = errors.New("identity: registration is closed")
+	ErrInvalidInviteCode  error = errors.New("identity: invalid invite code")
 )
 
 type Claims struct {
@@ -29,6 +34,8 @@ type RegisterInput struct {
 	Password  string
 	FirstName string
 	Surname   string
+	// InviteCode must match Config.InviteCode.
+	InviteCode string
 }
 
 // Service is the public surface of the identity module.
@@ -43,6 +50,8 @@ type Config struct {
 	JWTSecret  string
 	TokenTTL   time.Duration
 	BcryptCost int
+	// InviteCode gates Register. Empty closes registration entirely.
+	InviteCode string
 }
 
 type userStore interface {
@@ -59,6 +68,7 @@ type service struct {
 	users      userStore
 	tokens     tokenManager
 	bcryptCost int
+	inviteCode string
 }
 
 // New wires the module. It fails fast on an empty JWT secret.
@@ -67,10 +77,27 @@ func New(db *gorm.DB, cfg Config) (Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("identity: %w", err)
 	}
-	return &service{users: repo.New(db), tokens: manager, bcryptCost: cfg.BcryptCost}, nil
+	return &service{users: repo.New(db), tokens: manager, bcryptCost: cfg.BcryptCost, inviteCode: cfg.InviteCode}, nil
+}
+
+// checkInvite compares digests so the comparison time does not depend on the code's length.
+func (s *service) checkInvite(code string) error {
+	if s.inviteCode == "" {
+		return ErrRegistrationClosed
+	}
+	want := sha256.Sum256([]byte(s.inviteCode))
+	got := sha256.Sum256([]byte(code))
+	if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		return ErrInvalidInviteCode
+	}
+	return nil
 }
 
 func (s *service) Register(ctx context.Context, in RegisterInput) error {
+	// Checked first so an uninvited caller learns nothing about which usernames exist.
+	if err := s.checkInvite(in.InviteCode); err != nil {
+		return err
+	}
 	if in.Username == "" || in.Password == "" {
 		return ErrInvalidInput
 	}

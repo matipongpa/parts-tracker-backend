@@ -20,6 +20,8 @@ type registerRequest struct {
 	Password  string `json:"password"`
 	FirstName string `json:"firstname"`
 	Surname   string `json:"surname"`
+	// InviteCode is the shared code that authorises registration.
+	InviteCode string `json:"invitecode"`
 }
 
 type loginRequest struct {
@@ -62,16 +64,21 @@ func registerHandler(svc Service) gin.HandlerFunc {
 		}
 
 		err := svc.Register(c.Request.Context(), RegisterInput{
-			Username:  req.Username,
-			Password:  req.Password,
-			FirstName: req.FirstName,
-			Surname:   req.Surname,
+			Username:   req.Username,
+			Password:   req.Password,
+			FirstName:  req.FirstName,
+			Surname:    req.Surname,
+			InviteCode: req.InviteCode,
 		})
 		switch {
 		case err == nil:
 			c.JSON(http.StatusOK, gin.H{"message": "User registered successfully"})
 		case errors.Is(err, ErrInvalidInput):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		case errors.Is(err, ErrRegistrationClosed):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Registration is closed"})
+		case errors.Is(err, ErrInvalidInviteCode):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid invite code"})
 		case errors.Is(err, ErrUsernameTaken):
 			c.JSON(http.StatusConflict, gin.H{"error": "Username already taken"})
 		default:

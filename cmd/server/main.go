@@ -45,9 +45,13 @@ func run() error {
 		JWTSecret:  cfg.JWTSecret,
 		TokenTTL:   cfg.TokenTTL,
 		BcryptCost: cfg.BcryptCost,
+		InviteCode: cfg.InviteCode,
 	})
 	if err != nil {
 		return err
+	}
+	if cfg.InviteCode == "" {
+		log.Print("registration closed: REGISTER_INVITE_CODE is not set")
 	}
 
 	partsSvc := parts.New(conn, parts.Options{
