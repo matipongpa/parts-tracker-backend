@@ -1,31 +1,18 @@
-version: "3.8"
-
+# Runs only the API. Postgres is the shared instance in ../postgres-image (start it first:
+# `docker compose up -d --wait` there). Secrets live in .env, never in this file.
 services:
   app:
     build: .
+    container_name: partlist-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside the container "localhost" is the container itself, so the database URL differs from
+      # the one used by `go run`. APP_DB_URL (in .env) points at the host-published Postgres port.
+      DB_URL: ${APP_DB_URL:?set APP_DB_URL in .env, e.g. the DB_URL with host.docker.internal instead of localhost}
+      PORT: "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "8080:8080"
-    depends_on:
-      - db
-    environment:
-      - JWT_SECRET=C71FEBBED7BEC3797266CB746223E
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=secret
-      - DB_NAME=mydb
-
-  db:
-    image: postgres:16
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: mydb
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
-# BCRYPT_COST = "12"
-# DB_URL = "partlist.db"
-# PORT = "8080"
+      # Loopback only. HOST_PORT avoids clashing with other projects on 8080.
+      - "127.0.0.1:${HOST_PORT:-8082}:8080"
