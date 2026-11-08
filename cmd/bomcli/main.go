@@ -19,6 +19,8 @@ func main() {
 }
 
 // run imports each given .xlsm/.xlsx file directly through the service layer (no HTTP, no login).
+// Columns are found by the saved mapping for the file's header row, else by detection; a file whose
+// required columns cannot be found is refused, so use the web page to map it by hand.
 func run(paths []string) error {
 	if len(paths) == 0 {
 		return fmt.Errorf("usage: bomcli <file.xlsm> [more files...]")
@@ -31,7 +33,7 @@ func run(paths []string) error {
 	if err != nil {
 		return err
 	}
-	svc := bomconverter.New(parts.New(conn, parts.Options{}))
+	svc := bomconverter.New(parts.New(conn, parts.Options{}), conn)
 
 	for _, path := range paths {
 		if err := importFile(svc, path); err != nil {
@@ -48,7 +50,7 @@ func importFile(svc bomconverter.Service, path string) error {
 	}
 	defer f.Close()
 
-	res, err := svc.Import(context.Background(), f)
+	res, err := svc.Import(context.Background(), f, bomconverter.ImportOptions{})
 	if err != nil {
 		return err
 	}
