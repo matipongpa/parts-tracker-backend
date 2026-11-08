@@ -7,9 +7,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"partlist/internal/assistant"
 	"partlist/internal/bomconverter"
 	"partlist/internal/identity"
 	"partlist/internal/parts"
+	"partlist/internal/partstools"
 	"partlist/internal/platform/config"
 	"partlist/internal/platform/db"
 	"partlist/internal/platform/httpx"
@@ -59,12 +61,18 @@ func run() error {
 		CacheMaxEntries: cfg.PartsCacheMaxEntries,
 		CacheTTL:        cfg.PartsCacheTTL,
 	})
+	assistantSvc, err := newAssistant(cfg, partsSvc)
+	if err != nil {
+		return err
+	}
+	cookies := identity.CookieConfig{Secure: cfg.CookieSecure, SameSite: cfg.CookieSameSite}
 	router := buildRouter(routerDeps{
 		auth:        authSvc,
-		cookies:     identity.CookieConfig{Secure: cfg.CookieSecure, SameSite: cfg.CookieSameSite},
+		cookies:     cookies,
 		corsOrigins: cfg.CORSAllowedOrigins,
 		parts:       partsSvc,
 		bom:         bomconverter.New(partsSvc),
+		assistant:   assistantSvc,
 	})
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -72,15 +80,29 @@ func run() error {
 	return nil
 }
 
-// routerDeps groups what buildRouter needs.
+// newAssistant returns nil when no API key is configured, which leaves POST /api/ask unmounted.
+func newAssistant(cfg config.Config, partsSvc parts.Service) (assistant.Service, error) {
+	if cfg.AI.APIKey == "" {
+		log.Printf("assistant disabled: no API key set for provider %q", cfg.AI.Provider)
+		return nil, nil
+	}
+	log.Printf("assistant enabled: provider %q", cfg.AI.Provider)
+	return assistant.New(partstools.New(partsSvc), assistant.Config{
+		Provider: cfg.AI.Provider, APIKey: cfg.AI.APIKey, BaseURL: cfg.AI.BaseURL, Model: cfg.AI.Model,
+	})
+}
+
+// routerDeps groups what buildRouter needs. assistant may be nil.
 type routerDeps struct {
 	auth        identity.Service
 	cookies     identity.CookieConfig
 	corsOrigins []string
 	parts       parts.Service
 	bom         bomconverter.Service
+	assistant   assistant.Service
 }
 
+// buildRouter mounts every module. deps.assistant may be nil, in which case /api/ask does not exist.
 func buildRouter(deps routerDeps) *gin.Engine {
 	router := gin.Default()
 	router.Use(httpx.NewCORS(deps.corsOrigins))
@@ -95,6 +117,9 @@ func buildRouter(deps routerDeps) *gin.Engine {
 	protected.Use(identity.Middleware(deps.auth))
 	parts.RegisterRoutes(protected, deps.parts)
 	bomconverter.RegisterRoutes(protected, deps.bom)
+	if deps.assistant != nil {
+		assistant.RegisterRoutes(protected, deps.assistant)
+	}
 
 	return router
 }

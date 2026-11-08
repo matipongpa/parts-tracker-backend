@@ -22,7 +22,7 @@ const (
 	defaultRefreshTTL        time.Duration = 7 * 24 * time.Hour
 	defaultCORSOrigin        string        = "http://localhost:4200"
 	defaultPartsCacheEntries int           = 1000
-	defaultPartsCacheTTL     time.Duration = 60 * time.Second
+	defaultPartsCacheTTL     time.Duration = 300 * time.Second
 )
 
 // Config is loaded once in cmd/server and passed down to modules.
@@ -49,6 +49,26 @@ type Config struct {
 	// PartsCacheMaxEntries <= 0 disables the parts search cache.
 	PartsCacheMaxEntries int
 	PartsCacheTTL        time.Duration
+	// AI configures POST /api/ask. It is enabled only when AI.APIKey is set.
+	AI AIConfig
+}
+
+// AI providers selectable with AI_PROVIDER.
+const (
+	AIProviderAnthropic        string = "anthropic"
+	AIProviderOpenAICompatible string = "openai-compatible"
+)
+
+// AIConfig selects the language model behind POST /api/ask.
+type AIConfig struct {
+	Provider string
+	// APIKey is ANTHROPIC_API_KEY for the anthropic provider and AI_API_KEY for openai-compatible.
+	// Empty leaves the assistant disabled.
+	APIKey string
+	// BaseURL is the API root of an openai-compatible server, e.g. https://host/api/v1.
+	BaseURL string
+	// Model is required for openai-compatible; empty selects the assistant's default for anthropic.
+	Model string
 }
 
 // Load reads an optional .env file, then validates the process environment.
@@ -110,6 +130,12 @@ func fromEnv(getenv func(string) string) (Config, error) {
 	if err := authFromEnv(getenv, &cfg); err != nil {
 		return Config{}, err
 	}
+
+	ai, err := aiFromEnv(getenv)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AI = ai
 
 	if raw := getenv("BCRYPT_COST"); raw != "" {
 		cost, err := strconv.Atoi(raw)
@@ -198,4 +224,60 @@ func corsOriginsFromEnv(raw string) ([]string, error) {
 		return nil, errors.New("config: CORS_ALLOWED_ORIGINS has no origins")
 	}
 	return origins, nil
+}
+
+// aiFromEnv reads the assistant settings. The assistant stays off unless the provider's key is set;
+// once it is set, the rest of that provider's settings must be valid so a typo fails at startup.
+func aiFromEnv(getenv func(string) string) (AIConfig, error) {
+	provider := strings.ToLower(strings.TrimSpace(getenv("AI_PROVIDER")))
+	if provider == "" {
+		provider = AIProviderAnthropic
+	}
+	ai := AIConfig{Provider: provider, Model: strings.TrimSpace(getenv("AI_MODEL"))}
+
+	switch provider {
+	case AIProviderAnthropic:
+		ai.APIKey = getenv("ANTHROPIC_API_KEY")
+	case AIProviderOpenAICompatible:
+		ai.APIKey = getenv("AI_API_KEY")
+		ai.BaseURL = strings.TrimSpace(getenv("AI_BASE_URL"))
+		if ai.APIKey == "" {
+			return ai, nil
+		}
+		if ai.Model == "" {
+			return AIConfig{}, errors.New("config: AI_MODEL is required when AI_PROVIDER is openai-compatible")
+		}
+		if err := validateBaseURL(ai.BaseURL); err != nil {
+			return AIConfig{}, fmt.Errorf("config: AI_BASE_URL: %w", err)
+		}
+	default:
+		return AIConfig{}, fmt.Errorf("config: AI_PROVIDER must be %q or %q, got %q", AIProviderAnthropic, AIProviderOpenAICompatible, provider)
+	}
+	return ai, nil
+}
+
+// validateBaseURL requires https, so the API key never travels in clear text, except to a
+// loopback address (a local Ollama, for example).
+func validateBaseURL(raw string) error {
+	if raw == "" {
+		return errors.New("is required when AI_PROVIDER is openai-compatible")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%q is not a valid URL", raw)
+	}
+	if u.User != nil {
+		return errors.New("must not contain credentials")
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		switch u.Hostname() {
+		case "localhost", "127.0.0.1", "::1":
+			return nil
+		}
+		return errors.New("must use https unless it points at localhost")
+	}
+	return fmt.Errorf("scheme must be https, got %q", u.Scheme)
 }

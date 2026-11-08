@@ -68,6 +68,71 @@ func TestFromEnv(t *testing.T) {
 	}
 }
 
+func TestFromEnvAssistantSettings(t *testing.T) {
+	base := func(extra map[string]string) map[string]string {
+		env := map[string]string{"JWT_SECRET": "s", "DB_URL": "postgres://x"}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+	const tokenme = "https://api.tokenme.limited/api/v1"
+
+	cases := []struct {
+		name    string
+		env     map[string]string
+		want    AIConfig
+		wantErr bool
+	}{
+		{"off by default", base(nil), AIConfig{Provider: AIProviderAnthropic}, false},
+		{
+			"anthropic with key and model",
+			base(map[string]string{"ANTHROPIC_API_KEY": "sk-a", "AI_MODEL": "claude-sonnet-5-5"}),
+			AIConfig{Provider: AIProviderAnthropic, APIKey: "sk-a", Model: "claude-sonnet-5-5"}, false,
+		},
+		{
+			"anthropic ignores the openai-compatible key",
+			base(map[string]string{"AI_API_KEY": "other"}),
+			AIConfig{Provider: AIProviderAnthropic}, false,
+		},
+		{
+			"openai-compatible complete",
+			base(map[string]string{"AI_PROVIDER": " OpenAI-Compatible ", "AI_API_KEY": "k", "AI_BASE_URL": tokenme, "AI_MODEL": "m"}),
+			AIConfig{Provider: AIProviderOpenAICompatible, APIKey: "k", BaseURL: tokenme, Model: "m"}, false,
+		},
+		{
+			"openai-compatible without a key stays off even if misconfigured",
+			base(map[string]string{"AI_PROVIDER": "openai-compatible"}),
+			AIConfig{Provider: AIProviderOpenAICompatible}, false,
+		},
+		{
+			"openai-compatible allows http on localhost",
+			base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_BASE_URL": "http://localhost:11434/v1", "AI_MODEL": "llama"}),
+			AIConfig{Provider: AIProviderOpenAICompatible, APIKey: "k", BaseURL: "http://localhost:11434/v1", Model: "llama"}, false,
+		},
+		{"openai-compatible needs a model", base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_BASE_URL": tokenme}), AIConfig{}, true},
+		{"openai-compatible needs a base url", base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_MODEL": "m"}), AIConfig{}, true},
+		{"plain http to a remote host is refused", base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_BASE_URL": "http://api.example.com/v1", "AI_MODEL": "m"}), AIConfig{}, true},
+		{"credentials in the url are refused", base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_BASE_URL": "https://user:pw@api.example.com/v1", "AI_MODEL": "m"}), AIConfig{}, true},
+		{"unknown scheme is refused", base(map[string]string{"AI_PROVIDER": "openai-compatible", "AI_API_KEY": "k", "AI_BASE_URL": "ftp://api.example.com", "AI_MODEL": "m"}), AIConfig{}, true},
+		{"unknown provider", base(map[string]string{"AI_PROVIDER": "gemini"}), AIConfig{}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := fromEnv(envFrom(tc.env))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want an error, got %+v", cfg.AI)
+				}
+				return
+			}
+			if err != nil || cfg.AI != tc.want {
+				t.Errorf("AI = %+v, err = %v, want %+v", cfg.AI, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestFromEnvInviteCode(t *testing.T) {
 	base := map[string]string{"JWT_SECRET": "s", "DB_URL": "postgres://x"}
 
