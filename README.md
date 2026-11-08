@@ -21,6 +21,8 @@ Dependency rules:
 
 ```
 bomconverter ──▶ parts
+assistant    ──▶ partstools ──▶ parts
+mcpserver    ──▶ partstools
 identity        (independent)
 all modules  ──▶ platform
 ```
@@ -36,11 +38,15 @@ all modules  ──▶ platform
 cmd/
   server/             HTTP server (builds platform, constructs modules, mounts routes)
   bomcli/             import BOM files straight into the database (no HTTP, no login)
+  mcp/                MCP server (stdio) exposing the read-only parts tools
 internal/
   platform/           config, db, migrate, httpx (CORS)
   identity/           users, register/login, JWT issue/verify, auth middleware
   parts/              parts CRUD, search, cache, designator classification, bulk create
   bomconverter/       XLSM/XLSX BOM parsing and import
+  partstools/         read-only parts queries as AI tools (search_parts, get_part_usage)
+  assistant/          POST /api/ask: a model (Claude or OpenAI-compatible) calls partstools, answer + parts returned
+  mcpserver/          the same tools served over MCP
 migrations/           versioned SQL (embedded into the binary)
 docs/design/          design doc
 ```
@@ -62,6 +68,7 @@ All paths are under `/api`. Everything except `/ping`, `/register`, `/login` and
 | PUT | `/part/:id` | partial update (only fields present in the body); 409 if it would duplicate another part |
 | DELETE | `/part/:id` | delete |
 | POST | `/bom/import` | upload a BOM workbook (see below) |
+| POST | `/ask` | `{question}` → `{answer, parts, parts_truncated, tools_used}`; only mounted when `ANTHROPIC_API_KEY` is set (see AI assistant) |
 
 ### Sessions
 
@@ -109,6 +116,51 @@ CLI equivalent (needs the same environment as the server):
 go run ./cmd/bomcli path/to/bom.xlsm [more files...]
 ```
 
+## AI assistant and MCP
+
+Free-text questions such as "which projects use part GRM188?" are answered in two steps. The data is never searched or collected by the model: it calls **read-only tools** (`internal/partstools`) that run exact queries through `parts.Service`, then summarizes what they returned.
+
+| Tool | Purpose |
+|---|---|
+| `search_parts` | the normal search (substring filters, paged, max 50 per page) |
+| `get_part_usage` | one part number across all projects, grouped by project, with the boards (`pcb_ref`) and variants in each |
+
+There is no tool that writes. Part descriptions come from uploaded spreadsheets and are treated as untrusted text.
+
+The tools are exposed two ways from one definition:
+
+- **`POST /api/ask`** (Bearer token). The server runs the model's tool loop (at most 6 tool rounds, 90 s). The response carries the model's `answer` and the `parts` the tools returned. The rows come from the tool results, not from the model's text, so the list cannot be altered by the model. At most 200 parts are returned (`parts_truncated`). It is only mounted when an API key is configured (below). There is no per-user rate limit yet.
+- **`cmd/mcp`**, an MCP server on stdio for clients such as Claude Desktop, using the client's own model. It reads the database directly with the credentials in its environment, so run it only on a trusted machine:
+
+```bash
+go build -o parts-mcp ./cmd/mcp
+```
+
+```json
+{ "mcpServers": { "parts-tracker": {
+    "command": "/path/to/parts-mcp",
+    "env": { "DB_URL": "postgres://…", "JWT_SECRET": "unused-but-required" } } } }
+```
+
+Quantities and reference designators are not stored (one row per part per board per project), so neither the answer nor the tools can say how many units a board uses.
+
+### Choosing the model provider
+
+`AI_PROVIDER` selects the adapter. Both implement the same small interface, so the tools, loop and MCP server are identical:
+
+```bash
+# Claude (default)
+ANTHROPIC_API_KEY=...            # AI_MODEL optional, defaults to claude-opus-5-5
+
+# Any OpenAI-compatible chat API (OpenAI, Ollama, OpenRouter, gateways such as tokenme)
+AI_PROVIDER=openai-compatible
+AI_API_KEY=...
+AI_BASE_URL=https://api.tokenme.limited/api/v1   # the root; /chat/completions is appended
+AI_MODEL=deepseek-ai/deepseek-v4-flash-0731
+```
+
+The model must support **tool calling**; without it the assistant cannot read any data. `AI_BASE_URL` must be `https` (plain `http` only for localhost). Keep keys in `.env` or the environment, never in the repository. A key that is missing leaves `/api/ask` unmounted; a key with missing or invalid companion settings fails at startup.
+
 ## Search cache
 
 `Search` is cached in process (no Redis): bounded LRU with TTL. The key is `search:v{version}:{sha256(normalized query)}`; every successful write bumps an atomic version so old entries become unreachable and age out. Concurrent identical misses share one database query (singleflight). With several instances, each has its own cache, so staleness is bounded by the TTL.
@@ -155,13 +207,19 @@ Read from the environment (a `.env` file is loaded if present).
 | `RUN_MIGRATIONS` | no | `false` | apply pending migrations at startup |
 | `PARTS_CACHE_MAX_ENTRIES` | no | `1000` | search cache size; `0` or less disables it |
 | `PARTS_CACHE_TTL` | no | `60s` | search cache entry lifetime |
+| `AI_PROVIDER` | no | `anthropic` | `anthropic` or `openai-compatible` |
+| `ANTHROPIC_API_KEY` | no | | key for the `anthropic` provider; empty leaves `POST /api/ask` unmounted |
+| `AI_API_KEY` | no | | key for the `openai-compatible` provider |
+| `AI_BASE_URL` | with `AI_API_KEY` | | API root of the openai-compatible server |
+| `AI_MODEL` | openai-compatible only | `claude-opus-5-5` (anthropic) | model id sent to the provider |
 
-> `docker-compose.yml` and `env.example` still list the old `DB_HOST`/`DB_PORT`/`DB_USER`… variables; the app reads `DB_URL`. They need updating.
+`env.example` lists every variable. The database itself is the shared Postgres in `../postgres-image`.
 
 ## Development
 
 ```bash
 go run ./cmd/server          # start the API
+docker compose up -d --build # or run it in a container (needs APP_DB_URL in .env, see env.example)
 go test ./...                # unit tests
 ```
 
@@ -174,7 +232,7 @@ TEST_DB_URL='postgres://postgres:pw@localhost:55432/t?sslmode=disable' go test .
 
 ## Status and roadmap
 
-Done: platform and identity, parts module, search cache, synchronous BOM import with duplicate skipping.
+Done: platform and identity, parts module, search cache, synchronous BOM import with duplicate skipping, part-usage lookup, AI assistant (`/api/ask`) and MCP server over read-only tools.
 
 Planned (see the design doc):
 
