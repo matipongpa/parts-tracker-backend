@@ -73,6 +73,7 @@ func run() error {
 		parts:       partsSvc,
 		bom:         bomconverter.New(partsSvc),
 		assistant:   assistantSvc,
+		history:     assistant.NewHistory(conn, assistant.DefaultHistoryLimit),
 	})
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -100,6 +101,7 @@ type routerDeps struct {
 	parts       parts.Service
 	bom         bomconverter.Service
 	assistant   assistant.Service
+	history     assistant.History
 }
 
 // buildRouter mounts every module. deps.assistant may be nil, in which case /api/ask does not exist.
@@ -117,8 +119,10 @@ func buildRouter(deps routerDeps) *gin.Engine {
 	protected.Use(identity.Middleware(deps.auth))
 	parts.RegisterRoutes(protected, deps.parts)
 	bomconverter.RegisterRoutes(protected, deps.bom)
+	username := func(c *gin.Context) string { return c.GetString(identity.UsernameContextKey) }
+	assistant.RegisterHistoryRoutes(protected, deps.history, username)
 	if deps.assistant != nil {
-		assistant.RegisterRoutes(protected, deps.assistant)
+		assistant.RegisterAskRoutes(protected, deps.assistant, deps.history, username)
 	}
 
 	return router

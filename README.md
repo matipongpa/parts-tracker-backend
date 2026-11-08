@@ -68,7 +68,10 @@ All paths are under `/api`. Everything except `/ping`, `/register`, `/login` and
 | PUT | `/part/:id` | partial update (only fields present in the body); 409 if it would duplicate another part |
 | DELETE | `/part/:id` | delete |
 | POST | `/bom/import` | upload a BOM workbook (see below) |
-| POST | `/ask` | `{question}` → `{answer, parts, parts_truncated, tools_used}`; only mounted when `ANTHROPIC_API_KEY` is set (see AI assistant) |
+| POST | `/ask` | `{question}` → `{id, question, answer, parts, parts_truncated, tools_used, created_at}`; the answer is saved to the caller's history (`id` is empty if saving failed); only mounted when `ANTHROPIC_API_KEY` is set (see AI assistant) |
+| GET | `/ask/history` | the caller's saved questions, newest first: `{list: [{id, question, created_at}]}` (works even when the assistant is disabled) |
+| GET | `/ask/history/:id` | one saved conversation: `{id, question, answer, parts, parts_truncated, tools_used, created_at}`; 404 if it is not yours |
+| DELETE | `/ask/history/:id` | delete one saved question, 204; 404 if it is not yours |
 
 ### Sessions
 
@@ -143,6 +146,12 @@ go build -o parts-mcp ./cmd/mcp
 ```
 
 Quantities and reference designators are not stored (one row per part per board per project), so neither the answer nor the tools can say how many units a board uses.
+
+### Ask history
+
+Every answered question is saved per user in `ask_history` (migration `0005`): the question as sent (trimmed), the answer exactly as the model gave it, and a **snapshot** of the parts it was based on, so opening an old entry shows what the user saw then, even if parts have since changed or been deleted. Nothing is sent to the model when an entry is read. The newest 100 entries per user are kept; saving the 101st deletes the oldest. Failed or refused questions are not saved. If the save itself fails, the answer is still returned (with an empty `id`) and the error is logged.
+
+Entries are keyed by the username from the token and every query filters on it, so another user's id answers 404. There is no foreign key to `users`, because modules do not touch each other's tables. Set `TEST_DB_URL` to run the Postgres-backed tests (`../postgres-image/scripts/dbctl.sh create partlist_test`, then `url partlist_test`).
 
 ### Choosing the model provider
 
