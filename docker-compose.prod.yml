@@ -1,0 +1,63 @@
+# Full stack for deploy-manager (https://github.com/<you>/deploy-manager): database, API and UI.
+# For local development use docker-compose.yml (API only, against the shared dev Postgres).
+#
+# deploy-manager setup: this repo is the app, with compose file docker-compose.prod.yml and an
+# extra repository in the folder `parts-tracker-ui` (the build context below). Add the env file
+# `.env` (see env.example). Both repos must be pushed: only the remote branch is deployed.
+#
+# Only the UI is published. Its nginx proxies /api to the API, so the browser sees one origin.
+name: parts-tracker
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: partlist
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: partlist
+    volumes:
+      # Named volume: deploy-manager runs compose inside its own container, so relative bind
+      # mounts would point inside the manager, not at the PC.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U partlist -d partlist"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Wins over anything in .env. Hex passwords (openssl rand -hex 24) need no URL escaping.
+      DB_URL: postgres://partlist:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/partlist?sslmode=disable
+      PORT: "8080"
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/ping || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  web:
+    build: ../parts-tracker-ui
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8082}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+volumes:
+  pgdata:

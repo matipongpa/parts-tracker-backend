@@ -239,6 +239,23 @@ docker run -d --rm --name pt-test-pg -e POSTGRES_PASSWORD=pw -e POSTGRES_DB=t -p
 TEST_DB_URL='postgres://postgres:pw@localhost:55432/t?sslmode=disable' go test ./internal/parts/...
 ```
 
+## Deploying with deploy-manager
+
+`docker-compose.prod.yml` runs the whole stack: Postgres 16 (named volume `pgdata`), the API, and the UI served by nginx from the sibling repo `parts-tracker-ui`. Only the UI port is published (`WEB_PORT`, default 8082). Its nginx proxies `/api` to the API, so the browser sees one origin: no CORS, and the httpOnly refresh cookie stays first-party. Every service has a healthcheck, so `compose up --wait` fails the deploy on a bad release.
+
+In deploy-manager, add an app with:
+
+| Field | Value |
+|---|---|
+| ID | `parts-tracker` |
+| Repository | `https://github.com/matipongpa/parts-tracker-backend` |
+| Compose file | `docker-compose.prod.yml` |
+| Extra repo | folder `parts-tracker-ui`, `https://github.com/matipongpa/parts-tracker-ui` |
+| App URL | `http://<PC address>:8082` |
+| Env file | `.env`, with at least `JWT_SECRET`, `POSTGRES_PASSWORD` (`openssl rand -hex 24`), and `COOKIE_SECURE=false` while served over plain HTTP; add `REGISTER_INVITE_CODE` and the AI settings as needed |
+
+Both repos must be pushed first: the manager deploys what is on the remote branch. `DB_URL`, `PORT` and `RUN_MIGRATIONS` are set by the compose file and override `.env`. Over HTTPS (Tailscale or a TLS proxy) drop `COOKIE_SECURE=false`.
+
 ## Status and roadmap
 
 Done: platform and identity, parts module, search cache, synchronous BOM import with duplicate skipping, part-usage lookup, AI assistant (`/api/ask`) and MCP server over read-only tools.
