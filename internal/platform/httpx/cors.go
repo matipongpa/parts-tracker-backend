@@ -7,14 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// NewCORS returns the CORS middleware. It does not handle authentication.
-func NewCORS() gin.HandlerFunc {
+// NewCORS returns the CORS middleware for the given UI origins. Credentials are allowed so the
+// browser can send the httpOnly refresh cookie, which means origins must be exact (no "*").
+// It does not handle authentication.
+func NewCORS(allowedOrigins []string) gin.HandlerFunc {
 	return cors.New(cors.Config{
-		// In production these should be the frontend domain(s).
-		AllowOrigins: []string{
-			"http://localhost:4200",
-			"https://your-frontend.com",
-		},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

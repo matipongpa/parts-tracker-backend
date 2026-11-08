@@ -29,6 +29,16 @@ type Claims struct {
 	Username string
 }
 
+// Session is what a successful login hands back.
+type Session struct {
+	// AccessToken is short-lived; the client sends it as a Bearer token and keeps it in memory.
+	AccessToken string
+	// RefreshToken only buys a new AccessToken. It belongs in an httpOnly cookie, never in JS.
+	RefreshToken string
+	// RefreshMaxAge is how long RefreshToken stays valid, for the cookie's Max-Age.
+	RefreshMaxAge time.Duration
+}
+
 type RegisterInput struct {
 	Username  string
 	Password  string
@@ -41,14 +51,21 @@ type RegisterInput struct {
 // Service is the public surface of the identity module.
 type Service interface {
 	Register(ctx context.Context, in RegisterInput) error
-	// Login returns a signed JWT.
-	Login(ctx context.Context, username string, password string) (string, error)
+	// Login checks the credentials and starts a session.
+	Login(ctx context.Context, username string, password string) (Session, error)
+	// Refresh exchanges a refresh token for a new access token. It returns ErrInvalidToken
+	// when the token is bad, expired, of the wrong kind, or its user no longer exists.
+	Refresh(ctx context.Context, refreshToken string) (string, error)
+	// Verify validates an access token.
 	Verify(ctx context.Context, rawToken string) (Claims, error)
 }
 
 type Config struct {
-	JWTSecret  string
-	TokenTTL   time.Duration
+	JWTSecret string
+	// TokenTTL is the access token lifetime; keep it short because it cannot be revoked.
+	TokenTTL time.Duration
+	// RefreshTTL is the refresh token lifetime, i.e. the longest a login lasts without re-entering a password.
+	RefreshTTL time.Duration
 	BcryptCost int
 	// InviteCode gates Register. Empty closes registration entirely.
 	InviteCode string
@@ -61,23 +78,32 @@ type userStore interface {
 
 type tokenManager interface {
 	Issue(username string) (string, error)
+	IssueRefresh(username string) (string, error)
 	Parse(raw string) (string, error)
+	ParseRefresh(raw string) (string, error)
 }
 
 type service struct {
 	users      userStore
 	tokens     tokenManager
+	refreshTTL time.Duration
 	bcryptCost int
 	inviteCode string
 }
 
 // New wires the module. It fails fast on an empty JWT secret.
 func New(db *gorm.DB, cfg Config) (Service, error) {
-	manager, err := token.NewManager(cfg.JWTSecret, cfg.TokenTTL)
+	manager, err := token.NewManager(cfg.JWTSecret, cfg.TokenTTL, cfg.RefreshTTL)
 	if err != nil {
 		return nil, fmt.Errorf("identity: %w", err)
 	}
-	return &service{users: repo.New(db), tokens: manager, bcryptCost: cfg.BcryptCost, inviteCode: cfg.InviteCode}, nil
+	return &service{
+		users:      repo.New(db),
+		tokens:     manager,
+		refreshTTL: cfg.RefreshTTL,
+		bcryptCost: cfg.BcryptCost,
+		inviteCode: cfg.InviteCode,
+	}, nil
 }
 
 // checkInvite compares digests so the comparison time does not depend on the code's length.
@@ -131,23 +157,46 @@ func (s *service) Register(ctx context.Context, in RegisterInput) error {
 	return err
 }
 
-func (s *service) Login(ctx context.Context, username string, password string) (string, error) {
+func (s *service) Login(ctx context.Context, username string, password string) (Session, error) {
 	user, err := s.users.FindByUsername(ctx, username)
 	if errors.Is(err, repo.ErrNotFound) {
-		return "", ErrInvalidCredentials
+		return Session{}, ErrInvalidCredentials
 	}
 	if err != nil {
-		return "", fmt.Errorf("find user: %w", err)
+		return Session{}, fmt.Errorf("find user: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
-			return "", ErrInvalidCredentials
+			return Session{}, ErrInvalidCredentials
 		}
-		return "", fmt.Errorf("compare password: %w", err)
+		return Session{}, fmt.Errorf("compare password: %w", err)
 	}
 
-	return s.tokens.Issue(user.Username)
+	access, err := s.tokens.Issue(user.Username)
+	if err != nil {
+		return Session{}, err
+	}
+	refresh, err := s.tokens.IssueRefresh(user.Username)
+	if err != nil {
+		return Session{}, err
+	}
+	return Session{AccessToken: access, RefreshToken: refresh, RefreshMaxAge: s.refreshTTL}, nil
+}
+
+func (s *service) Refresh(ctx context.Context, refreshToken string) (string, error) {
+	username, err := s.tokens.ParseRefresh(refreshToken)
+	if err != nil {
+		return "", ErrInvalidToken
+	}
+	// A refresh outlives the password check, so confirm the account still exists.
+	if _, err := s.users.FindByUsername(ctx, username); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			return "", ErrInvalidToken
+		}
+		return "", fmt.Errorf("find user: %w", err)
+	}
+	return s.tokens.Issue(username)
 }
 
 func (s *service) Verify(_ context.Context, rawToken string) (Claims, error) {

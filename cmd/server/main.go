@@ -44,6 +44,7 @@ func run() error {
 	authSvc, err := identity.New(conn, identity.Config{
 		JWTSecret:  cfg.JWTSecret,
 		TokenTTL:   cfg.TokenTTL,
+		RefreshTTL: cfg.RefreshTTL,
 		BcryptCost: cfg.BcryptCost,
 		InviteCode: cfg.InviteCode,
 	})
@@ -58,27 +59,42 @@ func run() error {
 		CacheMaxEntries: cfg.PartsCacheMaxEntries,
 		CacheTTL:        cfg.PartsCacheTTL,
 	})
-	router := buildRouter(authSvc, partsSvc, bomconverter.New(partsSvc))
+	router := buildRouter(routerDeps{
+		auth:        authSvc,
+		cookies:     identity.CookieConfig{Secure: cfg.CookieSecure, SameSite: cfg.CookieSameSite},
+		corsOrigins: cfg.CORSAllowedOrigins,
+		parts:       partsSvc,
+		bom:         bomconverter.New(partsSvc),
+	})
 	if err := router.Run(":" + cfg.Port); err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
 }
 
-func buildRouter(authSvc identity.Service, partsSvc parts.Service, bomSvc bomconverter.Service) *gin.Engine {
+// routerDeps groups what buildRouter needs.
+type routerDeps struct {
+	auth        identity.Service
+	cookies     identity.CookieConfig
+	corsOrigins []string
+	parts       parts.Service
+	bom         bomconverter.Service
+}
+
+func buildRouter(deps routerDeps) *gin.Engine {
 	router := gin.Default()
-	router.Use(httpx.NewCORS())
+	router.Use(httpx.NewCORS(deps.corsOrigins))
 
 	public := router.Group(apiBasePath)
 	public.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
-	identity.RegisterRoutes(public, authSvc)
+	identity.RegisterRoutes(public, deps.auth, deps.cookies)
 
 	protected := router.Group(apiBasePath)
-	protected.Use(identity.Middleware(authSvc))
-	parts.RegisterRoutes(protected, partsSvc)
-	bomconverter.RegisterRoutes(protected, bomSvc)
+	protected.Use(identity.Middleware(deps.auth))
+	parts.RegisterRoutes(protected, deps.parts)
+	bomconverter.RegisterRoutes(protected, deps.bom)
 
 	return router
 }

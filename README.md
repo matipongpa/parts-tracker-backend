@@ -47,19 +47,35 @@ docs/design/          design doc
 
 ## API
 
-All paths are under `/api`. Everything except `/ping`, `/register` and `/login` needs `Authorization: Bearer <token>`.
+All paths are under `/api`. Everything except `/ping`, `/register`, `/login` and `/auth/*` needs `Authorization: Bearer <access token>`.
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/ping` | health check |
 | POST | `/register` | `{invitecode, username, password, firstname, surname}`; 403 if the invite code is wrong or registration is closed, 409 if the username is taken |
-| POST | `/login` | `{username, password}` → `{token}` |
+| POST | `/login` | `{username, password}` → `{token}` (short-lived access token) and sets the httpOnly `refresh_token` cookie |
+| POST | `/auth/refresh` | no body; reads the `refresh_token` cookie → `{token}`. 401 (and the cookie is cleared) if it is missing, expired or invalid |
+| POST | `/auth/logout` | clears the `refresh_token` cookie, 204 |
 | GET | `/part` | search; returns `{list, count}` |
 | GET | `/part/:id` | one part |
 | POST | `/part` | create; 409 if the part already exists |
 | PUT | `/part/:id` | partial update (only fields present in the body); 409 if it would duplicate another part |
 | DELETE | `/part/:id` | delete |
 | POST | `/bom/import` | upload a BOM workbook (see below) |
+
+### Sessions
+
+`/login` returns a 15-minute access token in the body, which the client keeps in memory only, and sets a refresh token as an `HttpOnly` cookie scoped to `/api/auth`, so page JavaScript can never read it. When the page reloads or the access token expires, the client calls `POST /auth/refresh` (with `credentials: 'include'`) to get a new one. A refresh token and an access token are not interchangeable: each is rejected where the other is expected.
+
+| Env | Default | |
+|---|---|---|
+| `TOKEN_TTL` | `15m` | access token lifetime |
+| `REFRESH_TOKEN_TTL` | `168h` | cookie lifetime; a login lasts this long at most, then the password is needed again |
+| `COOKIE_SECURE` | `true` | set `false` only for plain-HTTP local dev (Safari will not store a Secure cookie on http) |
+| `COOKIE_SAMESITE` | `lax` | `none` if the UI and API are on different sites (requires `COOKIE_SECURE=true`) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | comma-separated UI origins; exact, no `*` (credentials are allowed) |
+
+Known limit: refresh tokens are stateless JWTs, so `/auth/logout` removes the cookie but cannot revoke a token that was copied elsewhere; it expires on its own. A server-side token table with rotation would close that.
 
 ### Search
 

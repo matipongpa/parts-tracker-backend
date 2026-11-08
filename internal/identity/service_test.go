@@ -40,16 +40,16 @@ func (f *fakeStore) FindByUsername(_ context.Context, username string) (repo.Use
 
 func newTestService(t *testing.T) (*service, *fakeStore) {
 	t.Helper()
-	manager, err := token.NewManager("test-secret", time.Hour)
+	manager, err := token.NewManager("test-secret", 15*time.Minute, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
 	store := newFakeStore()
-	return &service{users: store, tokens: manager, bcryptCost: bcrypt.MinCost, inviteCode: testInviteCode}, store
+	return &service{users: store, tokens: manager, refreshTTL: 24 * time.Hour, bcryptCost: bcrypt.MinCost, inviteCode: testInviteCode}, store
 }
 
 func TestNewRejectsEmptySecret(t *testing.T) {
-	if _, err := New(nil, Config{JWTSecret: "", TokenTTL: time.Hour, BcryptCost: bcrypt.MinCost}); err == nil {
+	if _, err := New(nil, Config{JWTSecret: "", TokenTTL: time.Hour, RefreshTTL: time.Hour, BcryptCost: bcrypt.MinCost}); err == nil {
 		t.Fatal("expected error for empty JWT secret")
 	}
 }
@@ -137,11 +137,14 @@ func TestLoginThenVerify(t *testing.T) {
 		t.Fatalf("Register: %v", err)
 	}
 
-	raw, err := svc.Login(ctx, "alice", "pw")
+	session, err := svc.Login(ctx, "alice", "pw")
 	if err != nil {
 		t.Fatalf("Login: %v", err)
 	}
-	claims, err := svc.Verify(ctx, raw)
+	if session.RefreshMaxAge != 24*time.Hour {
+		t.Errorf("RefreshMaxAge = %v, want 24h", session.RefreshMaxAge)
+	}
+	claims, err := svc.Verify(ctx, session.AccessToken)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -169,5 +172,59 @@ func TestVerifyRejectsGarbage(t *testing.T) {
 	svc, _ := newTestService(t)
 	if _, err := svc.Verify(context.Background(), "nope"); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("err = %v, want ErrInvalidToken", err)
+	}
+}
+
+func registerAlice(t *testing.T, svc *service) Session {
+	t.Helper()
+	ctx := context.Background()
+	if err := svc.Register(ctx, RegisterInput{InviteCode: testInviteCode, Username: "alice", Password: "pw"}); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	session, err := svc.Login(ctx, "alice", "pw")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	return session
+}
+
+func TestRefreshIssuesWorkingAccessToken(t *testing.T) {
+	svc, _ := newTestService(t)
+	session := registerAlice(t, svc)
+
+	access, err := svc.Refresh(context.Background(), session.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	claims, err := svc.Verify(context.Background(), access)
+	if err != nil || claims.Username != "alice" {
+		t.Fatalf("Verify(refreshed) = %+v, %v; want alice", claims, err)
+	}
+}
+
+func TestRefreshRejectsAccessTokenGarbageAndDeletedUser(t *testing.T) {
+	svc, store := newTestService(t)
+	session := registerAlice(t, svc)
+	ctx := context.Background()
+
+	if _, err := svc.Refresh(ctx, session.AccessToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("access token as refresh: err = %v, want ErrInvalidToken", err)
+	}
+	if _, err := svc.Refresh(ctx, "nope"); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("garbage: err = %v, want ErrInvalidToken", err)
+	}
+
+	delete(store.users, "alice")
+	if _, err := svc.Refresh(ctx, session.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("deleted user: err = %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestVerifyRejectsRefreshToken(t *testing.T) {
+	svc, _ := newTestService(t)
+	session := registerAlice(t, svc)
+
+	if _, err := svc.Verify(context.Background(), session.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("err = %v, want ErrInvalidToken: a refresh token must not work as an access token", err)
 	}
 }
