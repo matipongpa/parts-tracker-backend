@@ -22,6 +22,9 @@ func (s *stubService) Search(_ context.Context, q SearchQuery) (SearchResult, er
 	s.lastQuery = q
 	return SearchResult{List: []Part{}, Count: 0}, nil
 }
+func (s *stubService) Usage(context.Context, string, bool) (UsageResult, error) {
+	return UsageResult{Projects: []ProjectUsage{}}, nil
+}
 func (s *stubService) Create(context.Context, NewPart) (Part, error) {
 	return Part{ID: "1"}, s.createErr
 }

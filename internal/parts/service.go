@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -21,6 +22,7 @@ var (
 const (
 	defaultPageSize int = 10
 	maxPageSize     int = 100
+	usageMaxRows    int = 500
 )
 
 type Part struct {
@@ -81,10 +83,28 @@ type SearchResult struct {
 	Count int64  `json:"count"`
 }
 
+// ProjectUsage lists the stored parts, one per board, that match a part number within one project.
+type ProjectUsage struct {
+	ProjectName string `json:"project_name"`
+	Parts       []Part `json:"parts"`
+}
+
+// UsageResult answers "where is this part number used?", grouped by project.
+// Matches counts the returned parts; Truncated is set when more exist than usageMaxRows.
+type UsageResult struct {
+	PartNumber string         `json:"part_number"`
+	Projects   []ProjectUsage `json:"projects"`
+	Matches    int            `json:"matches"`
+	Truncated  bool           `json:"truncated"`
+}
+
 // Service is the public surface of the parts module.
 type Service interface {
 	Get(ctx context.Context, id string) (Part, error)
 	Search(ctx context.Context, q SearchQuery) (SearchResult, error)
+	// Usage finds a part number across every project. Matching is case-insensitive; a substring
+	// unless exact. A blank part number is ErrInvalidInput.
+	Usage(ctx context.Context, partNumber string, exact bool) (UsageResult, error)
 	Create(ctx context.Context, p NewPart) (Part, error)
 	Update(ctx context.Context, id string, p PartPatch) (Part, error)
 	Delete(ctx context.Context, id string) error
@@ -97,6 +117,7 @@ type Service interface {
 type partStore interface {
 	Get(ctx context.Context, id uint64) (repo.Row, error)
 	Search(ctx context.Context, f repo.Filter) ([]repo.Row, int64, error)
+	ByPartNumber(ctx context.Context, partNumber string, exact bool, limit int) ([]repo.Row, error)
 	Create(ctx context.Context, row repo.Row) (repo.Row, error)
 	Update(ctx context.Context, id uint64, p repo.Patch) (repo.Row, error)
 	Delete(ctx context.Context, id uint64) error
@@ -152,6 +173,39 @@ func (s *service) Search(ctx context.Context, q SearchQuery) (SearchResult, erro
 		list[i] = toPart(row)
 	}
 	return SearchResult{List: list, Count: count}, nil
+}
+
+func (s *service) Usage(ctx context.Context, partNumber string, exact bool) (UsageResult, error) {
+	term := strings.TrimSpace(partNumber)
+	if term == "" {
+		return UsageResult{}, ErrInvalidInput
+	}
+	// One extra row tells us whether the cap cut the result short.
+	rows, err := s.store.ByPartNumber(ctx, term, exact, usageMaxRows+1)
+	if err != nil {
+		return UsageResult{}, err
+	}
+	truncated := len(rows) > usageMaxRows
+	if truncated {
+		rows = rows[:usageMaxRows]
+	}
+	return groupUsage(term, rows, truncated), nil
+}
+
+// groupUsage groups rows by project, keeping the first-seen order of projects and rows.
+func groupUsage(partNumber string, rows []repo.Row, truncated bool) UsageResult {
+	projects := []ProjectUsage{}
+	index := map[string]int{}
+	for _, row := range rows {
+		i, seen := index[row.ProjectName]
+		if !seen {
+			i = len(projects)
+			index[row.ProjectName] = i
+			projects = append(projects, ProjectUsage{ProjectName: row.ProjectName, Parts: []Part{}})
+		}
+		projects[i].Parts = append(projects[i].Parts, toPart(row))
+	}
+	return UsageResult{PartNumber: partNumber, Projects: projects, Matches: len(rows), Truncated: truncated}
 }
 
 func (s *service) Create(ctx context.Context, p NewPart) (Part, error) {

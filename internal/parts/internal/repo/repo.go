@@ -97,6 +97,25 @@ func (r *Repository) Search(ctx context.Context, f Filter) ([]Row, int64, error)
 	return rows, count, nil
 }
 
+// ByPartNumber returns up to limit rows whose part number matches case-insensitively (a substring
+// unless exact), ordered by project, board and id so callers can group them without sorting.
+func (r *Repository) ByPartNumber(ctx context.Context, partNumber string, exact bool, limit int) ([]Row, error) {
+	pattern := escapeLike(partNumber)
+	if !exact {
+		pattern = "%" + pattern + "%"
+	}
+	rows := []Row{}
+	err := r.db.WithContext(ctx).
+		Where("partnumber ILIKE ?", pattern).
+		Order("projectname ASC, pcbref ASC, id ASC").
+		Limit(limit).
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("find parts by part number: %w", err)
+	}
+	return rows, nil
+}
+
 func (r *Repository) Create(ctx context.Context, row Row) (Row, error) {
 	row.ID = 0
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {

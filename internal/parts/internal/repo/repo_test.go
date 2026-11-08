@@ -142,3 +142,42 @@ func TestDuplicatesAreRejectedOrSkipped(t *testing.T) {
 		t.Errorf("update into duplicate: %v", err)
 	}
 }
+
+func TestByPartNumberMatchesAcrossProjectsCaseInsensitively(t *testing.T) {
+	ctx := context.Background()
+	r := repo.New(newDB(t))
+
+	for _, in := range []repo.Row{
+		{PartNumber: "ABC-123", PcbRef: "PCB-2", ProjectName: "B"},
+		{PartNumber: "abc-123", PcbRef: "PCB-1", ProjectName: "A"},
+		{PartNumber: "ABC-1234", PcbRef: "PCB-1", ProjectName: "A"},
+		{PartNumber: "XYZ", PcbRef: "PCB-1", ProjectName: "A"},
+		{PartNumber: "A%C", PcbRef: "PCB-1", ProjectName: "C"},
+	} {
+		in.Fit, in.Manufacturer, in.Type, in.Value = "FIT", "M", "Capacitor", "1u"
+		if _, err := r.Create(ctx, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	exact, err := r.ByPartNumber(ctx, "ABC-123", true, 10)
+	if err != nil || len(exact) != 2 || exact[0].ProjectName != "A" || exact[1].ProjectName != "B" {
+		t.Fatalf("exact = %+v, %v (want projects A then B)", exact, err)
+	}
+
+	loose, err := r.ByPartNumber(ctx, "abc-123", false, 10)
+	if err != nil || len(loose) != 3 {
+		t.Fatalf("substring = %+v, %v (want 3)", loose, err)
+	}
+
+	// LIKE wildcards in the input are literals, not patterns.
+	wild, err := r.ByPartNumber(ctx, "A%C", true, 10)
+	if err != nil || len(wild) != 1 || wild[0].PartNumber != "A%C" {
+		t.Fatalf("wildcard = %+v, %v", wild, err)
+	}
+
+	limited, err := r.ByPartNumber(ctx, "abc", false, 2)
+	if err != nil || len(limited) != 2 {
+		t.Fatalf("limit = %+v, %v", limited, err)
+	}
+}

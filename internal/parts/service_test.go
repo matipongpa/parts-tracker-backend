@@ -14,6 +14,16 @@ type fakeStore struct {
 	lastPatch  repo.Patch
 	bulkRows   []repo.Row
 	getErr     error
+
+	pnRows      []repo.Row
+	lastPN      string
+	lastExact   bool
+	lastPNLimit int
+}
+
+func (f *fakeStore) ByPartNumber(_ context.Context, pn string, exact bool, limit int) ([]repo.Row, error) {
+	f.lastPN, f.lastExact, f.lastPNLimit = pn, exact, limit
+	return f.pnRows, nil
 }
 
 func (f *fakeStore) Get(_ context.Context, id uint64) (repo.Row, error) {
@@ -124,5 +134,67 @@ func TestBulkCreateValidatesAllBeforeStoring(t *testing.T) {
 	n, err := svc.BulkCreate(context.Background(), []NewPart{validPart(), validPart()})
 	if err != nil || n != 2 {
 		t.Fatalf("n = %d, err = %v", n, err)
+	}
+}
+
+func TestUsageRejectsBlankPartNumber(t *testing.T) {
+	svc := &service{store: &fakeStore{}}
+	for _, pn := range []string{"", "   ", "\t\n"} {
+		if _, err := svc.Usage(context.Background(), pn, false); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("Usage(%q) err = %v, want ErrInvalidInput", pn, err)
+		}
+	}
+}
+
+func TestUsageGroupsRowsByProject(t *testing.T) {
+	store := &fakeStore{pnRows: []repo.Row{
+		{ID: 1, PartNumber: "ABC", ProjectName: "A", PcbRef: "PCB-1"},
+		{ID: 2, PartNumber: "ABC", ProjectName: "A", PcbRef: "PCB-2"},
+		{ID: 3, PartNumber: "ABC", ProjectName: "B", PcbRef: "PCB-9"},
+	}}
+	svc := &service{store: store}
+
+	res, err := svc.Usage(context.Background(), "  ABC ", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.lastPN != "ABC" || !store.lastExact || store.lastPNLimit != usageMaxRows+1 {
+		t.Errorf("store called with (%q, %v, %d)", store.lastPN, store.lastExact, store.lastPNLimit)
+	}
+	if res.Matches != 3 || res.Truncated || len(res.Projects) != 2 {
+		t.Fatalf("result = %+v", res)
+	}
+	if got := res.Projects[0]; got.ProjectName != "A" || len(got.Parts) != 2 || got.Parts[1].PcbRef != "PCB-2" {
+		t.Errorf("project A = %+v", got)
+	}
+	if got := res.Projects[1]; got.ProjectName != "B" || len(got.Parts) != 1 || got.Parts[0].ID != "3" {
+		t.Errorf("project B = %+v", got)
+	}
+}
+
+func TestUsageWithNoMatchesReturnsEmptyProjects(t *testing.T) {
+	svc := &service{store: &fakeStore{}}
+	res, err := svc.Usage(context.Background(), "NOPE", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Projects == nil || len(res.Projects) != 0 || res.Matches != 0 {
+		t.Errorf("result = %+v, want empty non-nil projects", res)
+	}
+}
+
+func TestUsageTruncatesAtCap(t *testing.T) {
+	rows := make([]repo.Row, usageMaxRows+1)
+	for i := range rows {
+		rows[i] = repo.Row{ID: uint64(i + 1), ProjectName: "A"}
+	}
+	svc := &service{store: &fakeStore{pnRows: rows}}
+
+	res, err := svc.Usage(context.Background(), "ABC", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Truncated || res.Matches != usageMaxRows {
+		t.Errorf("truncated=%v matches=%d, want true/%d", res.Truncated, res.Matches, usageMaxRows)
 	}
 }
