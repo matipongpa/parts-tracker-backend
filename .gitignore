@@ -35,3 +35,8 @@ partlist.db
 # .idea/
 # .vscode/
 *.xlsm
+
+# OS / data files that must never be committed
+.DS_Store
+*.xlsx
+*.csv

@@ -26,7 +26,7 @@ Goals
 - Split into modules with explicit boundaries and one-way dependencies.
 - Importing a BOM becomes an asynchronous job that notifies the user on completion.
 - Faster, cached part search.
-- Keep existing API paths so the Angular UI and Bruno collection keep working.
+- Keep existing API paths so the existing UI keeps working.
 
 Non-goals
 - Splitting into separate deployables now (the design must allow it later).
@@ -214,7 +214,7 @@ Messages carry a file key, never file bytes. `EventBus` in `platform/eventbus` i
 
 - `GET /api/notifications/stream` returns `text/event-stream`.
 - The hub maps `username → set of connections`. On `bom.import.completed|failed` it writes an event to that user's connections.
-- Browser `EventSource` cannot send an `Authorization` header. Use either `@microsoft/fetch-event-source` in the Angular app (header works) or a short-lived, single-use stream ticket from an authenticated `POST /api/notifications/ticket`. Recommended: fetch-based SSE.
+- Browser `EventSource` cannot send an `Authorization` header. Use either `@microsoft/fetch-event-source` in the UI (header works) or a short-lived, single-use stream ticket from an authenticated `POST /api/notifications/ticket`. Recommended: fetch-based SSE.
 - Missed events are recovered with `GET /api/bom/jobs/:id` after reconnect. The UI shows job status from that endpoint on load.
 - The hub lives in `platform/sse`; it can become its own `notification` module if it grows (multiple channels, persistence, web push).
 
@@ -256,7 +256,7 @@ Each step is shippable on its own and leaves the API working.
 | 3 | Add the in-process cache with versioning + singleflight | Repeat searches served from memory |
 | 4 | Move `bomConverter` into `internal/bomconverter`, calling `parts.Service` in-process (still synchronous / CLI) | One Part model; no HTTP self-calls |
 | 5 | Add NATS JetStream, job table, `POST /bom/import`, worker | Async imports |
-| 6 | Add SSE hub + `/notifications/stream`; Angular consumes it | Users notified on completion |
+| 6 | Add SSE hub + `/notifications/stream`; the UI consumes it | Users notified on completion |
 | 7 | CI architecture check, Dockerfile + compose updates, remove old `src/handler`, `src/utilis` | Old structure gone |
 
 ## 11. Risks
@@ -264,7 +264,7 @@ Each step is shippable on its own and leaves the API working.
 - NATS adds an operational dependency; mitigated by the `EventBus` interface and an in-memory implementation for local runs and tests.
 - In-process cache is per instance; staleness is bounded by the 60 s TTL until the `parts.changed` event is added.
 - At-least-once delivery requires the claim + transaction discipline in 4.3; a bug there duplicates parts.
-- SSE needs the auth approach in section 6 on the Angular side.
+- SSE needs the auth approach in section 6 on the UI side.
 
 ## 12. Open questions
 

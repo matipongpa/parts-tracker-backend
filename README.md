@@ -1,8 +1,19 @@
 # parts-tracker-backend
 
+[![CI](https://github.com/matipongpa/parts-tracker-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/matipongpa/parts-tracker-backend/actions/workflows/ci.yml)
+
 Backend for tracking electronic parts. Go (Gin + GORM + Postgres), built as a **modular monolith**: one deployable, split into modules with explicit boundaries so it can be separated later.
 
-Sibling UI: `parts-tracker-ui` (Angular). Full design notes and the migration plan: [docs/design/modular-monolith.md](docs/design/modular-monolith.md).
+**At a glance**
+
+- Import messy BOM spreadsheets: columns are auto-detected (no AI), the user confirms the mapping, and confirmed layouts are remembered.
+- Search parts across projects and boards, backed by Postgres trigram indexes and an in-process LRU cache with singleflight.
+- Ask questions in plain language: an LLM (Claude or any OpenAI-compatible API) calls read-only tools, also exposed as an MCP server.
+- Auth with a short-lived in-memory access token and an httpOnly refresh cookie.
+
+UI: [parts-tracker-ui](https://github.com/matipongpa/parts-tracker-ui) (React + TypeScript). Design notes and migration plan: [docs/design/modular-monolith.md](docs/design/modular-monolith.md).
+
+**Quick start (whole stack, one command):** clone this repo and `parts-tracker-ui` side by side, create `.env` with `JWT_SECRET` and `POSTGRES_PASSWORD` (`openssl rand -hex 24`) and `COOKIE_SECURE=false`, then run `docker compose -f docker-compose.prod.yml up -d --build` and open http://localhost:8082.
 
 ## Architecture
 
@@ -208,6 +219,8 @@ Migrations are versioned SQL files in `migrations/`, embedded in the binary and 
 | `0002_users_unique_username` | unique index on `users.username` |
 | `0003_parts_trgm_indexes` | `pg_trgm` extension and GIN trigram indexes |
 | `0004_parts_unique_identity` | unique index on `parts (pcbref, partnumber, projectname)` |
+| `0005_ask_history` | per-user saved AI questions and answers |
+| `0006_bom_mappings` | saved BOM column mappings keyed by header fingerprint |
 
 Indexes:
 
@@ -246,7 +259,7 @@ Read from the environment (a `.env` file is loaded if present).
 | `AI_BASE_URL` | with `AI_API_KEY` | | API root of the openai-compatible server |
 | `AI_MODEL` | openai-compatible only | `claude-opus-5-5` (anthropic) | model id sent to the provider |
 
-`env.example` lists every variable. The database itself is the shared Postgres in `../postgres-image`.
+`env.example` lists every variable. For local dev, point `DB_URL` at any Postgres 16 (for example the `postgres:16-alpine` container shown under Development); `docker-compose.prod.yml` bundles its own.
 
 ## Development
 
